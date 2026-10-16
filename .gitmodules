@@ -1,0 +1,16 @@
+[submodule "third_party/Pointcept"]
+	path = third_party/Pointcept
+	url = https://github.com/Pointcept/Pointcept.git
+	shallow = true
+[submodule "third_party/ditr"]
+	path = third_party/ditr
+	url = https://github.com/RWTHVision/ditr.git
+	shallow = true
+[submodule "third_party/scannetpp"]
+	path = third_party/scannetpp
+	url = https://github.com/scannetpp/scannetpp.git
+	shallow = true
+[submodule "third_party/sonata"]
+	path = third_party/sonata
+	url = https://github.com/facebookresearch/sonata.git
+	shallow = true

@@ -1,0 +1,40 @@
+# Packages added on top of the Kaggle GPU image by scripts/setup/build_wheels.py.
+#
+# torch / torchvision / numpy come from the image and are protected by constraints (never
+# replaced). Unpinned entries keep the image's version when present, otherwise resolve to the
+# newest compatible release at build time; the exact result is frozen in
+# <wheelhouse>/requirements.lock.txt, which is what sessions install (offline, --no-deps).
+# pointops is compiled separately from third_party/Pointcept/libs/pointops (identical CUDA
+# sources to DITR's copy). Why each entry is here: docs/decisions.md (2026-10-16).
+#
+# {SPCONV} is filled in from torch's CUDA version (spconv 2.3.8 ships cu118/cu121/cu124/cu126).
+
+# --- compiled, bound to torch's ABI or CUDA
+spconv-{SPCONV}==2.3.8
+torch-scatter
+torch-cluster
+SharedArray==3.2.4
+
+# --- hard imports on the Pointcept + DITR training paths (tools/train.py import graph)
+torch-geometric
+open3d
+addict
+# DITR's config dump calls FormatCode(..., verify=True); `verify` was removed in yapf 0.40.2.
+# Pointcept main works with either, so 0.40.1 serves both codebases.
+yapf==0.40.1
+termcolor
+tensorboardX
+einops
+timm
+peft
+transformers
+h5py
+imageio
+plyfile
+albumentations
+wandb
+regex
+
+# --- Sonata smoke test, ScanNet++ toolbox evaluation
+huggingface_hub
+munch

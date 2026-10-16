@@ -1,0 +1,22 @@
+[project]
+name = "appearance-pt"
+version = "0.1.0"
+description = "Appearance-aware point cloud segmentation on ScanNet++ v2: reproduction of PTv3 and DITR baselines"
+requires-python = ">=3.10"
+# Runtime dependencies come from the Kaggle image + wheelhouse (configs/env/kaggle-requirements.in).
+dependencies = []
+
+[dependency-groups]
+# Local CPU-only tooling (the Mac has no NVIDIA GPU; all GPU work runs on Kaggle).
+dev = ["pytest>=8", "numpy>=1.26"]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

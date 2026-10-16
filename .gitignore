@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# ScanNet++ terms forbid redistribution: no data, nothing derived from data
+# (point clouds, images, overlays, features, predictions) may ever be committed.
+# ---------------------------------------------------------------------------
+data/
+datasets/
+raw/
+processed/
+features/
+cache/
+outputs/
+exp/
+checkpoints/
+wheelhouse/
+
+# data-like file types, anywhere in the repo (third_party is tracked as submodules)
+*.ply
+*.obj
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.lz4
+*.mkv
+*.mp4
+*.bin
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.whl
+*.jpg
+*.jpeg
+*.png
+!docs/figures/*.png
+
+# credentials: ScanNet++ download configs embed the token
+*token*
+*.secret
+download_scannetpp*.yml
+.env
+
+# python / tooling
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
+.DS_Store
+.idea/
+.vscode/

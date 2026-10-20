@@ -87,3 +87,20 @@ What the Kaggle image looks like, from `Kaggle/docker-python` `Dockerfile.tmpl` 
 
 ### Local machine (2026-10-16)
 macOS 15 (Darwin 24.3, arm64), no NVIDIA GPU, so there is **no local GPU environment**. A local `.venv` (uv, Python 3.14) holds only pytest and numpy for CPU unit tests. Disk is 100% full (about 0.5 GB free), so nothing data-sized is ever put on this machine.
+
+## 2026-10-21 — M1: first wheelhouse build on Kaggle
+
+### D7. spconv/cumm: switch off compile-on-import with a `.pth` (`src/appearance_pt/sitefix.py`)
+First `m1_01` run, image facts: Python 3.13.15, torch 2.11.0+cu128, nvcc 12.8, 2× T4 (14.56 GB each), torch arch list includes `sm_75`. All 22 wheels built and installed. pip picked spconv-cu126 2.3.8 + cumm-cu126 0.7.11, torch-scatter/cluster from PyG's `torch-2.11.0+cu128` page, and pointops compiled for 7.5+PTX in 3.5 min. Every import in the check passed **except `spconv.pytorch`**: on import, cumm started a ninja build of its own bindings and failed with `fatal error: tensorview/core/all.h: No such file or directory`. The compile flags show `-I /usr/local/lib/python3.13/dist-packages/include`.
+
+Cause, verified in the sources of cumm v0.7.11 and spconv v2.3.8 and in pccm's `utils.py`:
+- `pccm.utils.project_is_editable(name)` returns True when a `setup.py` or `.gitignore` exists in the **parent of the package dir**, i.e. in site-packages itself. Kaggle's dist-packages evidently has one. Which one is logged as `markers_in_site_dir` from the next run on.
+- With that flag, `cumm/__init__.py` JIT-builds `core_cc`. The guard is `... and not CUMM_DISABLE_JIT`. `spconv/build.py` does the same, guarded by `SPCONV_DISABLE_JIT`.
+- `cumm/constants.py` checks `<site-packages>/include` ("pip dev install") **before** `cumm/include` ("pip package", which the wheel ships). It then honours `CUMM_INCLUDE_PATH`. That path matters at runtime too: spconv's NVRTC fallback kernels compile against these headers.
+- `spconv.constants.SPCONV_DEBUG_CPP_ONLY`/`EDITABLE_INSTALLED` also come from the misdetection, but nothing else in the spconv 2.3.8 package reads them.
+
+Fix: after installing, write `appearance_pt_spconv.pth` next to cumm. It sets `CUMM_DISABLE_JIT=1`, `SPCONV_DISABLE_JIT=1` and `CUMM_INCLUDE_PATH=<cumm>/include` (with `setdefault`) at startup of every interpreter, which covers training runs, DDP workers and the import check. It's called from `build_wheels.py` step 6 and from `install_env.py`, and the values go into `env_record.json`. Rejected alternatives:
+- Deleting the stray file from the image: it edits the image and is fragile.
+- Setting the variables only in the notebook bootstrap: it would miss processes not started from it, and the include path is only known after installation.
+
+Still to verify: the smoke test's spconv forward/backward on the GPU.

@@ -30,6 +30,7 @@ from pathlib import Path
 from appearance_pt import REPO_ROOT, THIRD_PARTY
 from appearance_pt.envinfo import check_imports, collect
 from appearance_pt.runlog import section
+from appearance_pt.sitefix import install_spconv_fix
 
 REQUIREMENTS = REPO_ROOT / "configs/env/kaggle-requirements.in"
 POINTOPS_SRC = THIRD_PARTY / "Pointcept/libs/pointops"
@@ -206,6 +207,7 @@ def main() -> int:
 
     section("6. Offline install from the wheelhouse (exactly what later sessions do)")
     pip("install", "--no-index", "--no-deps", "-f", wheels, "-r", out / "requirements.lock.txt")
+    print(f"spconv/cumm fix (decisions.md D7): {json.dumps(install_spconv_fix())}")
     try:
         pip("check")
     except subprocess.CalledProcessError:

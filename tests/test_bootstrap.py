@@ -41,6 +41,27 @@ def test_clone_keeps_token_out_of_argv_and_output(boot, monkeypatch, tmp_path, c
     assert TOKEN not in out and encoded not in out
 
 
+def test_failed_fetch_shows_git_error_without_token(boot, monkeypatch, tmp_path):
+    encoded = base64.b64encode(f"x-access-token:{TOKEN}".encode()).decode()
+
+    def fake_run(args, cwd=None, env=None, check=False, text=False, capture_output=False):
+        if "fetch" in args:  # worst case: git echoes the credentials
+            return subprocess.CompletedProcess(args, 128, stdout="", stderr=f"remote: Repository not found. {TOKEN} {encoded}\n")
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(boot.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError) as e:
+        boot.clone_repo("me/appearance-pt", "main", dest=tmp_path / "repo", get_secret=lambda name: TOKEN)
+    msg = str(e.value)
+    assert "Repository not found" in msg and "exit 128" in msg
+    assert TOKEN not in msg and encoded not in msg
+
+
+def test_placeholder_repo_is_rejected(boot):
+    with pytest.raises(ValueError, match="REPO"):
+        boot.clone_repo("OWNER/appearance-pt", "main", get_secret=lambda name: TOKEN)
+
+
 def test_run_logged_streams_logs_and_raises(boot, tmp_path):
     log = tmp_path / "logs" / "step.log"
     boot.run_logged([sys.executable, "-c", "print('hello from step')"], log, cwd=tmp_path)

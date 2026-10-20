@@ -18,7 +18,7 @@ BOOTSTRAP = (ROOT / "scripts/setup/kaggle_bootstrap.py").read_text()
 
 CONFIG = '''\
 # ---- run configuration: the only cell to edit ----
-REPO = "OWNER/appearance-pt"  # your private GitHub repo (owner/name)
+REPO = "eylulpelinkilic/appearance-pt"  # your private GitHub repo (owner/name)
 REF = "main"                  # branch, tag or commit SHA; the resolved commit is logged
 '''
 
@@ -101,7 +101,7 @@ def build() -> dict[str, dict]:
                 "Run All (interactive is fine, ~3 min).",
                 "the SUMMARY block at the end (full JSON: /kaggle/working/m1_env_report.json).",
             ),
-            code('import os\nos.environ["APPT_GITHUB_REPO"] = "OWNER/appearance-pt"  # optional: checks token access to the repo'),
+            code('import os\nos.environ["APPT_GITHUB_REPO"] = "eylulpelinkilic/appearance-pt"  # optional: checks token access to the repo'),
             code(env_report),
         ]),
         "m1_01_build_wheels.ipynb": notebook([

@@ -25,6 +25,9 @@ SAFE_ENV_VARS = (
     "TORCH_CUDA_ARCH_LIST",
     "NCCL_P2P_DISABLE",
     "OMP_NUM_THREADS",
+    "CUMM_DISABLE_JIT",
+    "SPCONV_DISABLE_JIT",
+    "CUMM_INCLUDE_PATH",
 )
 
 # Modules that must import after installing the wheelhouse (build_wheels.py, install_env.py).

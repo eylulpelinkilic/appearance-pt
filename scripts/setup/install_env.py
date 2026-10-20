@@ -17,6 +17,7 @@ from pathlib import Path
 
 from appearance_pt.envinfo import check_imports, collect
 from appearance_pt.runlog import section
+from appearance_pt.sitefix import install_spconv_fix
 
 
 def find_wheelhouses(root: Path = Path("/kaggle/input"), max_depth: int = 4) -> list[Path]:
@@ -71,6 +72,7 @@ def main() -> int:
         check=True,
     )
     print((chosen / "requirements.lock.txt").read_text())
+    print(f"spconv/cumm fix (decisions.md D7): {json.dumps(install_spconv_fix())}")
 
     section("3. Import check")
     ok = check_imports()

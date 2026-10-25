@@ -34,6 +34,9 @@ PILOT_PYTHONPATH = {"PYTHONPATH": ":".join(f"{CODE_DIR}/{p}" for p in ("src", "t
 
 SETTINGS = {
     "gpu": "**Accelerator:** GPU T4 x2",
+    "cpu": "**Accelerator:** None (CPU only; saves GPU quota)",
+    "dlconfig": "**Input:** private dataset `scannetpp-download-config` (the official `download_scannetpp.yml` "
+                "with the token line set back to `<YOUR_TOKEN_HERE>`)",
     "internet": "**Internet:** on",
     "github": "**Secrets** (Add-ons → Secrets): `GITHUB_TOKEN` attached",
     "both_secrets": "**Secrets** (Add-ons → Secrets): `GITHUB_TOKEN` and `SCANNETPP_TOKEN` attached",
@@ -139,6 +142,22 @@ def build() -> dict[str, dict]:
             code(CLONE),
             run_step("scripts/setup/install_env.py", "", "m1_02_smoke_test.log"),
             run_step("scripts/setup/smoke_test.py", "", "m1_02_smoke_test.log"),
+        ]),
+        "notebooks/m2_00_scannetpp_sizes.ipynb": notebook([
+            header(
+                "M2-00 · ScanNet++ subset and asset sizes",
+                "Downloads only the ScanNet++ metadata (split and class lists), fixes the scene subset (all 50 val "
+                "scenes + 200 random train scenes, seed 0) and asks the server for the size of every candidate asset "
+                "of those scenes: mesh + labels, undistorted DSLR images + poses, iPhone data. No scene data is "
+                "downloaded. The token comes from Kaggle Secrets and never appears in the output.",
+                ["cpu", "internet", "both_secrets", "dlconfig"],
+                "Save Version → Save & Run All (Commit) (about 20–40 min: one request per file, paced for the server).",
+                "the SUMMARY block and the SUBSET line at the end (full log: "
+                "/kaggle/working/logs/m2_00_scannetpp_sizes.log; per-file sizes: /kaggle/working/scannetpp_sizes/sizes.csv).",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            run_step("scripts/scannetpp/scannetpp_sizes.py", "", "m2_00_scannetpp_sizes.log"),
         ]),
         "experiments/pilot_concat/notebooks/pilot_01_encoders.ipynb": notebook([
             header(

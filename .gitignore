@@ -42,6 +42,8 @@ wheelhouse/
 *token*
 *.secret
 download_scannetpp*.yml
+# official ScanNet++ download script (from the dataset website, no license): never committed
+download_scannetpp*.py
 .env
 
 # python / tooling

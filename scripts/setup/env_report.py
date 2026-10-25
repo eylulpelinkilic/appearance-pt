@@ -25,7 +25,7 @@ from datetime import date, datetime, timezone
 OUT_DIR = "/kaggle/working" if os.path.isdir("/kaggle/working") else "."
 REPORT = {}
 SAFE_KAGGLE_VARS = ("KAGGLE_KERNEL_RUN_TYPE", "KAGGLE_DOCKER_IMAGE", "KAGGLE_CONTAINER_NAME")
-SCANNETPP_TOKEN_EXPIRY = date(2026, 10, 25)
+SCANNETPP_TOKEN_EXPIRY = date(2026, 11, 1)  # extended token issued 2026-10-25
 PACKAGES = (
     "torch", "torchvision", "torchaudio", "triton", "numpy", "scipy", "pandas", "scikit-learn",
     "timm", "transformers", "peft", "accelerate", "huggingface-hub", "safetensors", "einops",
@@ -287,7 +287,7 @@ def secrets() -> None:
     for k, v in res.items():
         print(f"  {k:16s} {v}")
     days = (SCANNETPP_TOKEN_EXPIRY - date.today()).days
-    print(f"  ScanNet++ token expires {SCANNETPP_TOKEN_EXPIRY} ({days} days from today); extension possible from 2026-10-18.")
+    print(f"  ScanNet++ token expires {SCANNETPP_TOKEN_EXPIRY} ({days} days from today).")
     res["scannetpp_token_days_left"] = days
 
     repo = os.environ.get("APPT_GITHUB_REPO", "")

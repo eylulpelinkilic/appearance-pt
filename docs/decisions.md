@@ -5,6 +5,29 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
 
 ---
 
+## 2026-10-25 — M2 / pilot data: token extension, token-safe downloads, sizing first
+
+### D8. Our own download client instead of running the official script
+- **Token:** new (extended) token issued 2026-10-25, valid 7 days, so it **expires 2026-11-01** (user). It is stored only as the Kaggle secret `SCANNETPP_TOKEN`.
+- **The official `download_scannetpp.py` (from the ScanNet++ website) leaks the token into logs:**
+  - `print(f"Using token from config file: {cfg.token}")` (line 291);
+  - with `verbose`, every URL is printed, and the URL embeds the token (`url_template.replace("TOKEN", cfg.token)`, line 263);
+  - the 404 and HTTP-error boxes print the URL.
+
+  It also blocks on `input()` for a "y" (line 306). So it is never run on Kaggle.
+- **`appearance_pt.scannetpp_download`** reuses the official `download_scannetpp.yml` (URL template, `zipped_assets`, `exclude_assets`, `meta_files`). It resolves paths with the toolbox's `common/scene_release.py` (`ScannetppScene_Release`, loaded from the submodule), the same way the official script does: a zipped asset downloads as `<path>.zip`. It keeps the official retry policy (back off on 429/5xx). Errors replace the token with `***` and suppress exception chaining; `tests/test_scannetpp_download.py` checks this.
+- **Licensing:** the official `.py` and `.yml` have no license, so neither goes into git (`.gitignore`: `download_scannetpp*.py`, `download_scannetpp*.yml`). Kaggle gets the `.yml` through the private dataset `scannetpp-download-config`. The local `.yml` holds only the placeholder `<YOUR_TOKEN_HERE>`, which was checked.
+- **Path fix:** the `.gitignore` rule `data/` also matches `scripts/data/`, so entry points live in `scripts/scannetpp/`.
+
+### D9. Measure sizes before downloading (notebook `m2_00_scannetpp_sizes`, CPU only)
+- Downloads only `meta_files` (split and class lists).
+- Fixes the subset: all `nvs_sem_val` scenes plus 200 `nvs_sem_train` scenes, `numpy.random.default_rng(0)`, sorted. It gets committed as `configs/scannetpp_subset.json`; the pilot and M2 share it.
+- Sends a HEAD request for every candidate asset of those scenes: mesh + mask + segments + annotations, semantic mesh `.ply`, undistorted resized DSLR images + masks + `transforms_undistorted.json` + train/test lists, DSLR COLMAP, and iPhone video/mask/depth/poses/COLMAP.
+- Verified in the toolbox: `semantic/eval/eval_semantic.py` reads `scan_mesh_mask_path` (`mesh_aligned_0.05_mask.txt`) to ignore anonymised vertices, so the mask is required.
+- Unverified until data exists: the DSLR `is_bad` frame flag. No toolbox code reads it; it is expected in `transforms_undistorted.json`.
+
+---
+
 ## 2026-10-24 — Pilot (Concerto-style concatenation probe), step 1: point encoders
 
 Spec: `experiments/pilot_concat/README.md`. Code: `experiments/pilot_concat/encoders.py`.
@@ -71,7 +94,9 @@ Demo room: Pointcept `sample1`, a ScanNet scan with 273,530 points, 187,979 grid
 - **Sonata, open issue:** its released probe scores 0.491 on this room against Utonia's 0.780, and zeroing its colour *raises* the score.
   - Our call matches `third_party/sonata/demo/2_sem_seg.py` exactly (load, `transform.default()`, upcast loop, head).
   - Pointcept switched `NormalizeColor` from `/127.5 − 1` to `/255` in the Sonata release commit `10b749039c` (2025-03-20), and the Sonata package has used `/255` since its first commit. So a colour-convention mismatch is possible but not established.
-  - The pilot's sanity check (S ≈ 38.9 mIoU on ScanNet++ val) will test it at scale.
+  - **Tested (rerun 2026-10-25 12:56 UTC, check 2g):** with colours fed as `/127.5 − 1`, Sonata scores 0.487 against 0.491 with `/255`. Utonia, the control, drops from 0.780 to 0.700, so the test is sensitive. **The colour range is not the cause.** Sonata's predictions barely depend on colour on this room (0.491 with `/255`, 0.487 with `/127.5 − 1`, 0.535 with colour zeroed) and depend heavily on normals. **Decision: keep the package default `/255` for Sonata.**
+  - The low score stays unexplained. The pilot's sanity check (S ≈ 38.9 mIoU on ScanNet++ val) tests it at scale.
+  - The rerun reproduced every other step-1 number exactly (fixed seeds); GPU times varied by 5–10%.
 - **Cost per scene, one T4, upcast features materialised.** Peak memory is GPU memory beyond resident weights (weights: Utonia 0.51 GB, Sonata 0.40 GB):
 
   | grid points | Utonia fp16 | Sonata fp16 (SDPA) | Sonata fp16 (explicit) |

@@ -34,7 +34,7 @@ A = PTv3 on ScanNet++ v2, B = DITR (PTv3 + DINOv2 injection) on ScanNet++ v2.
 - Outputs as versioned PRIVATE Kaggle Datasets (ScanNet++ forbids redistribution); check Kaggle's
   dataset size limits first. Process 5 scenes first, measure size/scene, extrapolate, report.
 - Subset: all 50 val scenes + fixed random 200 train scenes (fixed seed; list committed).
-- **ScanNet++ token expires 2026-10-25** (extension possible from 2026-10-18): meshes + semantics for
+- **ScanNet++ token (extended on 2026-10-25, new token) expires 2026-11-01**: meshes + semantics for
   the subset first; iPhone data later, only for those scenes and only needed frames.
 - DITR later: per scene decode a pool of ~20–30 iPhone frames + depth, DINOv2 ViT-L patch features
   in fp16; estimate total storage before committing (PCA to fewer channels is an option).

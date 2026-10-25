@@ -44,7 +44,35 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
 - **Subset file:** `configs/scannetpp_subset.json` is the notebook's output file (seed 0; 200 train + 50 val, sorted, no duplicates).
   - Two train IDs are not 10 hex characters: `7104910700000` and `717485935`. The notebook output has them exactly like that, and the code only reads, samples and writes strings, so they come from the server's `splits/nvs_sem_train.txt` itself. They look like scientific-notation corruption (`71049107e5` read as 7.1049107·10¹²).
   - (An earlier guess that Kaggle's log viewer did this was wrong.)
-  - The size requests found every file for both scenes (0 missing). The trial notebook `m2_01` downloads and preprocesses both to confirm they are real scenes. If they are not, they get dropped and the train subset becomes 198 scenes.
+  - The size requests found every file for both scenes (0 missing). **Confirmed real by `m2_01`:** 948,191 and 4,301,110 vertices, labelled (42% and 90%), 391 and 2,157 DSLR images. They stay in the subset.
+
+### D10. Trial download (`m2_01`, Kaggle CPU session, 2026-10-25 15:24 UTC; 5 scenes: 3 val + the two odd IDs)
+
+| Scene | Download MB | MB/s | Vertices | Pointcept npy MB | DSLR images (mean MB) | `is_bad` |
+|---|---|---|---|---|---|---|
+| 09c1414f1b (val) | 1,057 | 17.0 (1 worker) | 3,383,834 | 132.0 | 2,391 (0.405) | 166 |
+| 0d2ee665be (val) | 84 | 11.3 (1 worker) | 1,082,845 | 42.2 | 189 (0.289) | 98 |
+| 13c3e046d7 (val) | 202 | 22.8 (4 workers) | 1,670,693 | 65.0 | 420 (0.375) | 2 |
+| 7104910700000 (train) | 118 | 20.4 (4 workers) | 948,191 | 37.0 | 391 (0.241) | 82 |
+| 717485935 (train) | 1,079 | 20.0 (4 workers) | 4,301,110 | 167.7 | 2,157 (0.448) | 443 |
+
+- **Speed:** 14.1 MB/s mean with one request at a time, 21.1 MB/s with 4 in parallel. Core 102 GB ≈ 1.3 h of pure transfer at 4 workers; iPhone 230 GB ≈ 3.0 h.
+- **DSLR:** 1752×1168 JPG (0.24–0.45 MB) with PNG masks (5 KB). `transforms_undistorted.json` holds `camera_model: PINHOLE`, `fl_x`, `fl_y`, `cx`, `cy`, `w`, `h`, `k1`–`k4` = 0, `has_mask`, `frames` (`file_path`, `is_bad`, `mask_path`, `transform_matrix`), `test_frames` (27) and `aabb_range`. **DSLR COLMAP is not needed.** `transform_matrix` is presumably nerfstudio's camera-to-world (OpenGL axes); the step-2 projection overlay checks the convention.
+- **Anonymisation mask** (`mesh_aligned_0.05_mask.txt`): a list of vertex indices, empty in 4 of 5 scenes, 2,017 vertices in 09c1414f1b.
+- **Pointcept npy:** ~39 bytes per vertex: coord f32 (12), color u8 (3), normal f32 (12), segment int16 ×3 (6), instance int16 ×3 (6). Labelled fraction 0.42–0.91.
+- **Scene size:** 0.95–4.3M vertices. Grid points at 2 cm are not measured yet. Scenes above the ~1.4M-grid-point single-pass limit (P3) will need chunked encoding in step 2.
+
+### D11. What we keep, and how the full download runs (user decisions 2026-10-25: 60 DSLR views; iPhone yes)
+- **One uncompressed tar per scene** (`appearance_pt.scannetpp_reduce.pack_scene`). JPGs and npy barely compress, and per-scene tars keep the notebook output to about 100 files. (Kaggle may limit the number of output files; not verified.) Each tar holds:
+  - Pointcept's npy files (unchanged Pointcept format, so its loaders work as-is);
+  - `mesh_aligned_0.05_mask.txt`;
+  - **val only:** the raw `mesh_aligned_0.05.ply`, `segments.json` and `segments_anno.json`, so the official ground truth (toolbox `prepare_training_data` → `prepare_semantic_gt`) can be regenerated exactly after the token expires;
+  - the full `transforms_undistorted.json` and `train_test_lists.json` (poses of all frames, small);
+  - a **pool of 60 DSLR views** with masks, plus `kept_views.json`.
+- **View pool:** `frames` + `test_frames`, minus `is_bad`, ordered by file name (= capture order), then 60 picked evenly. The pilot's ~30 views per scene and any later re-selection (coverage, occlusion) come from this pool. The other images are deleted, so this choice is final.
+- **Parts:** `val` (50 scenes), `train-a` (train[:100]), `train-b` (train[100:]). One CPU notebook run (`m2_02_scannetpp_core`) and one private dataset per part (`scannetpp-core-{val,train-a,train-b}`). Each output stays under ~20 GB; the script stops at 19 GB. Estimated kept size: 5-scene mean ≈ 100 MB per scene (Pointcept npy ≈ 39 B/vertex + 60 views × 0.39 MB), so ≈ 25–30 GB in total including the val raw files.
+- **CPU sessions:** Kaggle's CPU image has its own CPU torch, so the GPU wheelhouse does not install. The only extra package is `open3d==0.20.0` from PyPI (the wheelhouse's version), installed online.
+- **iPhone (230 GB): yes, this week, reduced to a frame pool** (about 60 frames per scene + depth + poses). Its format (video decoding, depth file, poses) needs its own small trial before the batch script is written. It runs after the core download.
 
 ---
 

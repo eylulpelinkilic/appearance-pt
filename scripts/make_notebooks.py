@@ -184,6 +184,27 @@ def build() -> dict[str, dict]:
             code(OPEN3D_CPU.format(log="m2_01_scannetpp_trial.log")),
             run_step("scripts/scannetpp/scannetpp_trial.py", "", "m2_01_scannetpp_trial.log"),
         ]),
+        "notebooks/m2_02_scannetpp_core.ipynb": notebook([
+            header(
+                "M2-02 · ScanNet++ core download, one part of the subset",
+                "Downloads mesh + labels and the undistorted DSLR data of one part of the 250-scene subset, runs "
+                "Pointcept's ScanNet++ preprocessing and keeps, per scene, one tar in `/kaggle/working/scannetpp_core/"
+                "scenes/`: Pointcept arrays, anonymisation mask, a pool of 60 good DSLR views (+ masks, poses), and for "
+                "val scenes the raw mesh + annotations for the official ground truth. Raw files are deleted per scene. "
+                "Import this notebook three times (one per part) and set PART in each; afterwards create one PRIVATE "
+                "dataset per output: `scannetpp-core-val`, `scannetpp-core-train-a`, `scannetpp-core-train-b`.",
+                ["cpu", "internet", "both_secrets", "dlconfig"],
+                "Save Version → Save & Run All (Commit). Expected: val ≈ 0.5 h, each train part ≈ 1–2 h.",
+                "the SUMMARY block at the end (full log: /kaggle/working/logs/m2_02_scannetpp_core.log; per-scene "
+                "manifest: /kaggle/working/scannetpp_core/manifest.json).",
+            ),
+            code(CONFIG),
+            code('# ---- which part of the scene subset this run downloads (one notebook copy per part) ----\n'
+                 'PART = "val"   # "val" (50 scenes), "train-a" (100), "train-b" (100)'),
+            code(CLONE),
+            code(OPEN3D_CPU.format(log="m2_02_scannetpp_core.log")),
+            run_step("scripts/scannetpp/scannetpp_fetch.py", ', "--part", PART', "m2_02_scannetpp_core.log"),
+        ]),
         "experiments/pilot_concat/notebooks/pilot_01_encoders.ipynb": notebook([
             header(
                 "Pilot · Step 1 · Frozen point encoders on a T4",

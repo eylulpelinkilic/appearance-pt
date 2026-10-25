@@ -17,7 +17,6 @@ Needs the Kaggle secret SCANNETPP_TOKEN, the token-free download config (input d
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import re
 import shutil
@@ -30,33 +29,16 @@ from pathlib import Path
 
 import numpy as np
 
-from appearance_pt import REPO_ROOT, THIRD_PARTY
+from appearance_pt import REPO_ROOT
 from appearance_pt.envinfo import collect
 from appearance_pt.runlog import section
 from appearance_pt.scannetpp_download import (CORE_ASSETS, SPLITS, ScannetppClient, find_config, kaggle_secret,
                                               load_config, scene_files)
+from appearance_pt.scannetpp_reduce import label_setup, load_preprocess
 
 MB = 1e6
 VIEWS_KEPT = 30  # DSLR views per scene the pilot keeps
 CORE_DOWNLOAD_GB, IPHONE_DOWNLOAD_GB = 102.0, 230.2  # whole subset, from m2_00 (docs/decisions.md D9)
-PREPROCESS = THIRD_PARTY / "Pointcept/pointcept/datasets/preprocessing/scannetpp/preprocess_scannetpp.py"
-
-
-def load_preprocess():
-    spec = importlib.util.spec_from_file_location("preprocess_scannetpp", PREPROCESS)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def label_setup(pp, root: Path):
-    """Label mapping and class indices exactly as preprocess_scannetpp.py's __main__ builds them."""
-    import pandas as pd
-
-    bench = root / "metadata" / "semantic_benchmark"
-    names = np.loadtxt(bench / "top100.txt", dtype=str, delimiter=".")
-    mapping = pp.filter_map_classes(pd.read_csv(bench / "map_benchmark.csv"), mapping_type="semantic")
-    return mapping, {name: i for i, name in enumerate(names)}
 
 
 def dir_stats(path: Path) -> dict:

@@ -18,7 +18,7 @@ official toolbox. Concerto's ScanNet linear-probe numbers: DINOv2 63.1, Sonata 7
 
 | Step | What | State |
 |---|---|---|
-| 1 | Encoder setup: loading, inputs, scale, upcast features, T4 time and memory | code ready; run `notebooks/pilot_01_encoders.ipynb` |
+| 1 | Encoder setup: loading, inputs, scale, upcast features, T4 time and memory | done 2026-10-25 (results: decisions.md P3); waiting for review |
 | 2 | Lift DINO features to points (≈30 DSLR views, occlusion test, visual check) | not started |
 | 3 | Training features: ≤10k labelled points × 200 train scenes, fp16 | not started |
 | 4 | Linear probes, 3 seeds per configuration | not started |

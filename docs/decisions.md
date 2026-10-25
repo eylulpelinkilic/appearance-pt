@@ -53,9 +53,36 @@ The odd one out is `semseg-utonia-v1m1-2a-scannetpp-lin.py`, which uses no resca
 - Pretraining saw ScanNet++ **val and test** scenes, unlabelled: Sonata (`ScanNetPPDataset` train/val/test chunks), Concerto and Utonia (`DefaultImagePointDataset` splits train/val/test).
 - Utonia, like Concerto, was trained with a 2D–3D objective against **DINOv2 ViT-g/14 with registers at 518 px** (`image_weight_name="dinov2_vitg14_reg"`). Our DINO block is the same family. So C − B measures what DINO adds beyond what Utonia already learned to predict from it. S+ − S (Sonata had no image objective) is the closer analogue of Concerto's pilot.
 
-### P3. Open until the step-1 notebook has run
-- Per-scene time and peak memory on a T4, and the largest scene that fits (tiled demo room as a size proxy; `--scenes` for real ScanNet++ scenes later). Grid points per ScanNet++ scene: unknown until data exists.
-- Whether SDPA and fp16 change features or predictions measurably (checks 2c, 2d).
+### P3. Step-1 notebook results (Kaggle T4, 2026-10-25 12:36 UTC, run of `pilot_01_encoders`)
+Demo room: Pointcept `sample1`, a ScanNet scan with 273,530 points, 187,979 grid points at 2 cm. Scored with the released ScanNet-20 probes; one room, so treat mIoU as a sanity check, not a benchmark.
+- **Utonia scale:**
+  - mIoU 0.780 for `default(0.5)` (scale 0.5, grid 0.01);
+  - 0.773 for Pointcept's ScanNet++ config (scale 1, grid 0.02);
+  - 0.517 for `default(1.0)` (scale 1, 1 cm grid).
+
+  **Decision confirmed: scale 0.5, grid 0.01.** The 0.7-point gap to the ScanNet++-config variant comes from one room and one seed, so it isn't meaningful on its own. The choice rests on P2's evidence; the run only shows nothing contradicts it.
+- **SDPA vs explicit attention:** 1st-percentile cosine 1.0 in fp32 and fp16 for both encoders; prediction agreement 1.0 (fp32), 0.9998 (Utonia fp16) and 0.9999 (Sonata fp16). **Decision: SDPA for both.** Sonata's explicit product runs out of memory already at 746k grid points.
+- **fp16 vs fp32:** 1st-percentile cosine 1.0; agreement 0.9998; mIoU 0.7803 vs 0.7803 (Utonia) and 0.4912 vs 0.4913 (Sonata). **Decision: fp16 autocast, fp16 features.**
+- **Randomness:** the same seed gives bitwise-identical features (max |diff| 0). Another seed (different voxel representatives and order shuffle) gives mean cosine 0.995 (Utonia) and 0.992 (Sonata), with 3.0% and 3.5% of point predictions flipping. **Decision: one seeded pass per scene, seed derived from the scene id.** Pointcept's multi-pass/TTA testing is not reproduced; this is a deviation to list in the write-up.
+- **Zeroed inputs (mIoU):**
+  - Utonia: 0.780 normally, 0.714 with colour zeroed, 0.777 with normals zeroed.
+  - Sonata: 0.491 normally, **0.535** with colour zeroed, **0.096** with normals zeroed.
+  - Utonia is robust to missing colour, which matters for anonymised vertices. Sonata collapses without normals, consistent with no normal dropout in its pretraining.
+- **Sonata, open issue:** its released probe scores 0.491 on this room against Utonia's 0.780, and zeroing its colour *raises* the score.
+  - Our call matches `third_party/sonata/demo/2_sem_seg.py` exactly (load, `transform.default()`, upcast loop, head).
+  - Pointcept switched `NormalizeColor` from `/127.5 − 1` to `/255` in the Sonata release commit `10b749039c` (2025-03-20), and the Sonata package has used `/255` since its first commit. So a colour-convention mismatch is possible but not established.
+  - The pilot's sanity check (S ≈ 38.9 mIoU on ScanNet++ val) will test it at scale.
+- **Cost per scene, one T4, upcast features materialised.** Peak memory is GPU memory beyond resident weights (weights: Utonia 0.51 GB, Sonata 0.40 GB):
+
+  | grid points | Utonia fp16 | Sonata fp16 (SDPA) | Sonata fp16 (explicit) |
+  |---|---|---|---|
+  | 188k | 0.75 s, 1.29 GB | 0.49 s, 1.15 GB | 0.82 s, 3.42 GB |
+  | 746k | 3.05 s, 5.10 GB | 1.97 s, 4.57 GB | OOM |
+  | 1.65M | 7.34 s, 11.33 GB; a repeat ran out of memory | 4.86 s, 10.14 GB; a repeat ran out of memory | n/a |
+
+  - Scaling: about 7 KB and 4.4 µs per grid point for Utonia; 6 KB and 2.9 µs for Sonata. fp32 roughly doubles memory.
+  - CPU transform: about 0.4 µs per input point.
+  - **Safe single-pass limit ≈ 1.4M grid points per scene.** Larger ScanNet++ scenes will need chunking, or features kept per stage instead of concatenated; to be decided once real scene sizes are known (first scenes in step 2).
 
 ---
 

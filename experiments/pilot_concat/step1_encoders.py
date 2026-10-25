@@ -5,6 +5,7 @@ On Pointcept's public demo room (a ScanNet scan with ScanNet-20 labels) it check
   2. which input scale Utonia expects, scored with its released ScanNet linear probe,
   3. that SDPA attention gives the same features as the original explicit product,
   4. fp16 against fp32, run-to-run variation (same seed, other seed), zeroed colour or normals,
+  5. colour scaled to [0, 1] (both packages) against [-1, 1] (Pointcept before Sonata's release),
 then measures GPU time and peak memory per scene against scene size (the room tiled k x k;
 real scenes with --scenes). Results: <out>/step1_summary.json and <out>/env_record.json.
 
@@ -143,7 +144,17 @@ def demo_checks(models, heads, room, gt, seed) -> dict:
             res["zeroed"][name][key] = score(heads[name], run(models, name, scene, seed, amp=True), gt)
         print(f"  {name:7s} {res['zeroed'][name]}")
 
-    section("2g. Upcast width and finiteness, all three encoders (fp16, SDPA)")
+    section("2g. Colour range: colour/255 in [0, 1] (both packages) vs colour/127.5 - 1 in [-1, 1] "
+            "(Pointcept's NormalizeColor before 2025-03-20; fp16, SDPA)")
+    # NormalizeColor divides by 255, so 2c - 255 comes out as c/127.5 - 1
+    signed = {**room, "color": room["color"].astype(np.float32) * 2 - 255}
+    res["color_range"] = {}
+    for name in ("utonia", "sonata"):
+        res["color_range"][name] = {"unit": res["zeroed"][name]["none"],
+                                    "signed": score(heads[name], run(models, name, signed, seed, amp=True), gt)}
+        print(f"  {name:7s} {res['color_range'][name]}")
+
+    section("2h. Upcast width and finiteness, all three encoders (fp16, SDPA)")
     res["upcast"] = {}
     for name in models:
         feat = run(models, name, room, seed, amp=True)[0]
@@ -250,6 +261,8 @@ def main() -> int:
     print(f"randomness: {json.dumps({k: (v['same_seed_max_abs'], v['other_seed']['cos_mean'], v['other_seed_pred_agreement']) for k, v in demo['randomness'].items()})}"
           "  (same-seed max|diff|, other-seed cos mean, agreement)")
     print(f"zeroed inputs mIoU: {json.dumps({k: {m: s['miou'] for m, s in v.items()} for k, v in demo['zeroed'].items()})}")
+    print(f"colour range mIoU: {json.dumps({k: {m: s['miou'] for m, s in v.items()} for k, v in demo['color_range'].items()})}"
+          "  (unit = colour/255, signed = colour/127.5 - 1)")
     print_bench(rows)
     print(f"\nfull results: {args.out / 'step1_summary.json'}")
     return 0

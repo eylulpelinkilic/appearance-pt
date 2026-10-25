@@ -146,7 +146,7 @@ def build() -> dict[str, dict]:
                 "Loads Utonia, Sonata and an untrained PTv3 (Utonia's architecture) without FlashAttention and checks, "
                 "on Pointcept's public demo room: stored configs and feature widths, Utonia's input scale (with its "
                 "released ScanNet probe), SDPA vs the original attention, fp16 vs fp32, run-to-run variation, zeroed "
-                "colour/normals. Then measures time and peak GPU memory per scene against scene size. Public data "
+                "colour/normals, colour range [0, 1] vs [-1, 1]. Then measures time and peak GPU memory per scene against scene size. Public data "
                 "only (Hugging Face): no ScanNet++ data, no `SCANNETPP_TOKEN`.",
                 ["gpu", "internet", "github", "pin", "wheels"],
                 "Save Version → Save & Run All (Commit) (expected well under 1 h; the largest tiled scenes are "

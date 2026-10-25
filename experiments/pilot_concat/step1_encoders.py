@@ -46,6 +46,7 @@ def run(models, name, scene, seed, amp=False, backend="sdpa", variant="default")
         return encode(models[name], make_transform(name, variant), scene, seed=seed, amp=amp)
 
 
+@torch.inference_mode()  # encode() returns inference tensors; the head must not record autograd
 def predict(head, result) -> np.ndarray:
     feat, inverse, _ = result
     return head(feat.float()).argmax(-1)[inverse].cpu().numpy()

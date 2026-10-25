@@ -157,4 +157,11 @@ Fix: after installing, write `appearance_pt_spconv.pth` next to cumm. It sets `C
 - Deleting the stray file from the image: it edits the image and is fragile.
 - Setting the variables only in the notebook bootstrap: it would miss processes not started from it, and the include path is only known after installation.
 
+Rerun with the fix (commit `637b952`, started 2026-10-20 22:18 UTC; log pasted 2026-10-25):
+- `markers_in_site_dir = [".gitignore", "include"]`. Kaggle's dist-packages has both stray markers, which confirms the diagnosis above.
+- The `.pth` was written to `/usr/local/lib/python3.13/dist-packages/appearance_pt_spconv.pth`.
+- All 24 modules in the import check pass, including `spconv.pytorch`.
+- 22 wheels, 506 MB; the whole build took 6.7 min.
+- `pip check` reports only conflicts among the image's preinstalled packages (google-colab, bigframes, dopamine-rl, moviepy), none involving the wheelhouse.
+
 Still to verify: the smoke test's spconv forward/backward on the GPU.

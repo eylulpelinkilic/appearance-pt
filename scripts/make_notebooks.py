@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-NB_DIR = ROOT / "notebooks"
 BOOTSTRAP = (ROOT / "scripts/setup/kaggle_bootstrap.py").read_text()
 
 CONFIG = '''\
@@ -26,6 +25,11 @@ CLONE = BOOTSTRAP + '''
 
 CODE_DIR, COMMIT = clone_repo(REPO, REF)
 PYTHONPATH = {"PYTHONPATH": f"{CODE_DIR}/src"}
+'''
+
+PILOT_PATH = '''\
+# pilot scripts import the Utonia and Sonata inference packages (pinned submodules) and our src/
+PILOT_PYTHONPATH = {"PYTHONPATH": ":".join(f"{CODE_DIR}/{p}" for p in ("src", "third_party/utonia", "third_party/sonata"))}
 '''
 
 SETTINGS = {
@@ -48,10 +52,10 @@ def code(text: str) -> dict:
             "source": text.strip("\n").splitlines(keepends=True)}
 
 
-def run_step(script: str, args: str, log: str) -> dict:
+def run_step(script: str, args: str, log: str, env: str = "PYTHONPATH") -> dict:
     return code(f'''\
 run_logged([sys.executable, "-u", "{script}"{args}],
-           "/kaggle/working/logs/{log}", cwd=CODE_DIR, extra_env=PYTHONPATH)
+           "/kaggle/working/logs/{log}", cwd=CODE_DIR, extra_env={env})
 ''')
 
 
@@ -89,9 +93,10 @@ def notebook(cells: list[dict]) -> dict:
 
 
 def build() -> dict[str, dict]:
+    """Notebooks by repo-relative path."""
     env_report = (ROOT / "scripts/setup/env_report.py").read_text()
     return {
-        "m1_00_env_report.ipynb": notebook([
+        "notebooks/m1_00_env_report.ipynb": notebook([
             header(
                 "M1-00 · Kaggle environment report",
                 "Measures the platform before anything is installed: GPU, driver/CUDA, compilers, preinstalled "
@@ -104,7 +109,7 @@ def build() -> dict[str, dict]:
             code('import os\nos.environ["APPT_GITHUB_REPO"] = "eylulpelinkilic/appearance-pt"  # optional: checks token access to the repo'),
             code(env_report),
         ]),
-        "m1_01_build_wheels.ipynb": notebook([
+        "notebooks/m1_01_build_wheels.ipynb": notebook([
             header(
                 "M1-01 · Build the offline wheelhouse",
                 "Builds every package the image lacks against its preinstalled torch (spconv, torch-scatter/cluster, "
@@ -118,7 +123,7 @@ def build() -> dict[str, dict]:
             code(CLONE),
             run_step("scripts/setup/build_wheels.py", ', "--out", "/kaggle/working/wheelhouse"', "m1_01_build_wheels.log"),
         ]),
-        "m1_02_smoke_test.ipynb": notebook([
+        "notebooks/m1_02_smoke_test.ipynb": notebook([
             header(
                 "M1-02 · Offline install + GPU smoke test",
                 "Installs the wheelhouse offline, then checks: compiled extensions, ScanNet++ toolbox import, the Sonata "
@@ -135,6 +140,26 @@ def build() -> dict[str, dict]:
             run_step("scripts/setup/install_env.py", "", "m1_02_smoke_test.log"),
             run_step("scripts/setup/smoke_test.py", "", "m1_02_smoke_test.log"),
         ]),
+        "experiments/pilot_concat/notebooks/pilot_01_encoders.ipynb": notebook([
+            header(
+                "Pilot · Step 1 · Frozen point encoders on a T4",
+                "Loads Utonia, Sonata and an untrained PTv3 (Utonia's architecture) without FlashAttention and checks, "
+                "on Pointcept's public demo room: stored configs and feature widths, Utonia's input scale (with its "
+                "released ScanNet probe), SDPA vs the original attention, fp16 vs fp32, run-to-run variation, zeroed "
+                "colour/normals. Then measures time and peak GPU memory per scene against scene size. Public data "
+                "only (Hugging Face): no ScanNet++ data, no `SCANNETPP_TOKEN`.",
+                ["gpu", "internet", "github", "pin", "wheels"],
+                "Save Version → Save & Run All (Commit) (expected well under 1 h; the largest tiled scenes are "
+                "allowed to run out of memory, that is part of the measurement).",
+                "the SUMMARY block at the end (full log: /kaggle/working/logs/pilot_01_encoders.log; results: "
+                "/kaggle/working/pilot_concat/step1/step1_summary.json).",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            code(PILOT_PATH),
+            run_step("scripts/setup/install_env.py", "", "pilot_01_encoders.log"),
+            run_step("experiments/pilot_concat/step1_encoders.py", "", "pilot_01_encoders.log", env="PILOT_PYTHONPATH"),
+        ]),
     }
 
 
@@ -143,10 +168,10 @@ def render(nb: dict) -> str:
 
 
 def main() -> None:
-    NB_DIR.mkdir(exist_ok=True)
-    for name, nb in build().items():
-        (NB_DIR / name).write_text(render(nb))
-        print(f"wrote notebooks/{name}")
+    for path, nb in build().items():
+        (ROOT / path).parent.mkdir(parents=True, exist_ok=True)
+        (ROOT / path).write_text(render(nb))
+        print(f"wrote {path}")
 
 
 if __name__ == "__main__":

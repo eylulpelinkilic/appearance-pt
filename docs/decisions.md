@@ -5,6 +5,60 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
 
 ---
 
+## 2026-10-24 — Pilot (Concerto-style concatenation probe), step 1: point encoders
+
+Spec: `experiments/pilot_concat/README.md`. Code: `experiments/pilot_concat/encoders.py`.
+
+### P1. Utonia as a pinned submodule; HF weights pinned by commit
+| Component | Pin | License |
+|---|---|---|
+| `third_party/utonia` (github.com/Pointcept/Utonia) | `f832deb77b9ea942e13dc9ef5a9e7e982b1d09ed` (2026-10-24, "Use SDPA in the non-flash attention branch") | Apache-2.0 (code) |
+| HF `Pointcept/Utonia`: `utonia.pth` (549 MB), `utonia_linear_prob_head_sc.pth` | `9457f025e36c7001ee962a542f0d27a5b600e1e7` | CC-BY-NC-4.0 |
+| HF `facebook/sonata`: `sonata.pth` (434 MB), `sonata_linear_prob_head_sc.pth` | `df99897472c09f91ba9288da0a034aacffc0b010` | not stated |
+
+- Why the standalone package rather than Pointcept main's `PT-v3m3`: the HF model card calls `utonia.pth` "the simplified version for inference" for that repo, and at this commit its non-flash attention uses SDPA. Pointcept's `PT-v3m3` materialises the full attention matrix.
+- Both packages' `load()` download `revision="main"`. `encoders.checkpoint()` downloads at the SHAs above and passes the local file to `load()`.
+- Change to D2: the pilot uses Sonata weights as a frozen feature extractor (config S), not only for the smoke test. Utonia weights are non-commercial. Everything stays private.
+
+### P2. What each encoder expects (verified in code at the pins above)
+| | Utonia | Sonata |
+|---|---|---|
+| Load | `utonia.model.load` → checkpoint `{config, state_dict}` → `PointTransformerV3(**config)`, encoder only | `sonata.model.load`, same layout; HF `config.json`: `in_channels=9`, `enc_mode=True`, `traceable=True`, `shuffle_orders=True`, patch 1024 |
+| Input feat | `Collect(feat_keys=("coord","color","normal"))`, 9 channels; `NormalizeColor` = colour/255 | same |
+| Missing colour/normal | zeros (README, HF card); pretraining drops both to 0 (`RandomDropColor`/`RandomDropNormal`) | not in pretraining (`pretrain-sonata-v1m1-0-base.py` has no colour/normal drop), so zeroed anonymised colours are out of distribution |
+| Transform | `transform.default(0.5)`: `RandomScale(0.5)` → `CenterShift` → `GridSample(0.01)` (2 cm in metres, coordinates halved) | `transform.default()`: `CenterShift` → `GridSample(0.02)`, metres |
+| Upcast width | 54+108+216+432+576 = **1386** | 48+96+192+384+512 = **1232** |
+| Head dim | 18 at every stage | 16 at every stage |
+| Attention, `enable_flash=False` | SDPA, head dim zero-padded 18 → 24 for the memory-efficient kernel (`SerializedAttention.forward`) | explicit `softmax(QKᵀ)V` only; `encoders.sonata_sdpa_forward` swaps in SDPA (same maths) |
+
+**Utonia's scale.** Indoor scale 0.5 comes from:
+- `demo/2_sem_seg.py` (`transform.default(0.5)` with the released ScanNet probe);
+- Pointcept's `semseg-utonia-v1m1-0a-scannet-lin.py` and `-3a-s3dis-lin.py` (`RandomScale([0.5, 0.5])` + grid 0.01);
+- indoor pretraining (`indoor_transform` in `pretrain-utonia-v1m1-0-base_stagev2.py`: `RandomScale([0.45, 0.55])` + grid 0.01, used for ScanNet, ScanNet++, ARKitScenes, S3DIS and HM3D).
+
+The odd one out is `semseg-utonia-v1m1-2a-scannetpp-lin.py`, which uses no rescale and grid 0.02. That file differs from the Sonata ScanNet++ config only in the backbone block, and Pointcept's Utonia README says the probing configs "have not been verified with one additional run". Both give the same 2 cm voxels: floor((0.5c − min 0.5c)/0.01) = floor((c − min c)/0.02). But the ScanNet++ config feeds coordinates 2× larger than pretraining, both into the xyz input channels and into RoPE (`Point3DRoPE`, base 10, applied to `point.coord`). **Decision: scale 0.5, grid 0.01.** Notebook check 2a scores all three variants with the released ScanNet probe.
+
+**Per-point features** (`DefaultSegmentorV2.forward` in `pointcept/models/default.py`; both packages' `demo/2_sem_seg.py`):
+- While `pooling_parent` exists: `parent.feat = cat(parent.feat, feat[pooling_inverse])`. This concatenates all five stages. The READMEs' `range(2)`-then-overwrite loop is for visualisation only.
+- `point.inverse` (from `GridSample(return_inverse=True)`) then maps every input point to its voxel's row, so all points in one 2 cm voxel share a feature.
+- `encode()` keeps voxel-level features plus that index rather than materialising N × 1386.
+
+**Randomness at inference.**
+- `GridSample(mode="train")` keeps a random point per voxel (`np.random`).
+- `Point.serialization(shuffle_orders=True)` permutes the four orders (`torch.randperm`), in eval too.
+- So `encode()` seeds numpy and torch per call. Check 2e measures how much features move across seeds.
+
+**Data facts.**
+- Points per ScanNet++ scene are the vertices of `mesh_aligned_0.05.ply`: Pointcept `preprocess_scannetpp.py` saves float32 coord, uint8 colour and open3d vertex normals. These are the same vertices the official evaluation scores.
+- Pretraining saw ScanNet++ **val and test** scenes, unlabelled: Sonata (`ScanNetPPDataset` train/val/test chunks), Concerto and Utonia (`DefaultImagePointDataset` splits train/val/test).
+- Utonia, like Concerto, was trained with a 2D–3D objective against **DINOv2 ViT-g/14 with registers at 518 px** (`image_weight_name="dinov2_vitg14_reg"`). Our DINO block is the same family. So C − B measures what DINO adds beyond what Utonia already learned to predict from it. S+ − S (Sonata had no image objective) is the closer analogue of Concerto's pilot.
+
+### P3. Open until the step-1 notebook has run
+- Per-scene time and peak memory on a T4, and the largest scene that fits (tiled demo room as a size proxy; `--scenes` for real ScanNet++ scenes later). Grid points per ScanNet++ scene: unknown until data exists.
+- Whether SDPA and fp16 change features or predictions measurably (checks 2c, 2d).
+
+---
+
 ## 2026-10-16 — M1: repository, environment strategy, smoke test
 
 ### D1. Third-party code as pinned, shallow submodules

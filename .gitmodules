@@ -14,3 +14,7 @@
 	path = third_party/sonata
 	url = https://github.com/facebookresearch/sonata.git
 	shallow = true
+[submodule "third_party/utonia"]
+	path = third_party/utonia
+	url = https://github.com/Pointcept/Utonia.git
+	shallow = true

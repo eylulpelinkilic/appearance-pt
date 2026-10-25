@@ -72,6 +72,12 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
 - **View pool:** `frames` + `test_frames`, minus `is_bad`, ordered by file name (= capture order), then 60 picked evenly. The pilot's ~30 views per scene and any later re-selection (coverage, occlusion) come from this pool. The other images are deleted, so this choice is final.
 - **Parts:** `val` (50 scenes), `train-a` (train[:100]), `train-b` (train[100:]). One CPU notebook run (`m2_02_scannetpp_core`) and one private dataset per part (`scannetpp-core-{val,train-a,train-b}`). Each output stays under ~20 GB; the script stops at 19 GB. Estimated kept size: 5-scene mean ≈ 100 MB per scene (Pointcept npy ≈ 39 B/vertex + 60 views × 0.39 MB), so ≈ 25–30 GB in total including the val raw files.
 - **CPU sessions:** Kaggle's CPU image has its own CPU torch, so the GPU wheelhouse does not install. The only extra package is `open3d==0.20.0` from PyPI (the wheelhouse's version), installed online.
+- **Val part done (2026-10-25 15:58 UTC, 15.5 min, CPU session):** 50/50 scenes; 13.0 GB downloaded, 8.36 GB kept (≈167 MB per scene including the raw val meshes). Vertices per scene: min 271,704, median 1,204,156, max 4,775,139. 3,086 `is_bad` frames in total; every scene has the full 60-view pool. Train parts expected ≈ 1 h and ≈ 10 GB kept each (no raw meshes).
+- **Train parts done (2026-10-25, 16:33 and 16:32 UTC):**
+  - train-a: 100/100 scenes; 44.6 GB downloaded, 8.31 GB kept; 48 min. Vertices min 217,160, median 1,152,117, max 7,717,931. 12,418 `is_bad` frames. **Smallest view pool: 31** (a scene with fewer than 60 good frames).
+  - train-b: 100/100 scenes; 44.4 GB downloaded, 8.87 GB kept; 45 min. Vertices min 254,894, median 1,137,323, **max 13,710,288**. 12,094 `is_bad` frames. Every pool has 60 views.
+  - **Core download complete: 250/250 scenes, 102.0 GB downloaded, 25.5 GB kept** across three notebook outputs, to be saved as the private datasets `scannetpp-core-{val,train-a,train-b}`.
+  - For step 2: the largest scenes (up to 13.7M vertices) are far above the ~1.4M-grid-point single-pass encoder limit even after 2 cm sampling, so chunked encoding is required. Scenes with fewer than 60 good DSLR frames keep all of them; the pilot's ~30 views still fit.
 - **iPhone (230 GB): yes, this week, reduced to a frame pool** (about 60 frames per scene + depth + poses). Its format (video decoding, depth file, poses) needs its own small trial before the batch script is written. It runs after the core download.
 
 ---

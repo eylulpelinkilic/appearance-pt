@@ -34,6 +34,12 @@ run_logged([sys.executable, "-m", "pip", "install", "--quiet", "open3d==0.20.0"]
            "/kaggle/working/logs/{log}", cwd=CODE_DIR)
 '''
 
+PIP_CPU = '''\
+# CPU session: small extra packages from PyPI (lz4 for depth.bin; imageio-ffmpeg in case the image has no ffmpeg)
+run_logged([sys.executable, "-m", "pip", "install", "--quiet", {packages}],
+           "/kaggle/working/logs/{log}", cwd=CODE_DIR)
+'''
+
 PILOT_PATH = '''\
 # pilot scripts import the Utonia and Sonata inference packages (pinned submodules) and our src/
 PILOT_PYTHONPATH = {"PYTHONPATH": ":".join(f"{CODE_DIR}/{p}" for p in ("src", "third_party/utonia", "third_party/sonata"))}
@@ -204,6 +210,23 @@ def build() -> dict[str, dict]:
             code(CLONE),
             code(OPEN3D_CPU.format(log="m2_02_scannetpp_core.log")),
             run_step("scripts/scannetpp/scannetpp_fetch.py", ', "--part", PART', "m2_02_scannetpp_core.log"),
+        ]),
+        "notebooks/m2_03_scannetpp_iphone_trial.ipynb": notebook([
+            header(
+                "M2-03 · ScanNet++ iPhone trial (3 scenes)",
+                "Downloads the iPhone data (RGB and mask videos, depth.bin, ARKit poses, COLMAP) of 3 val scenes into "
+                "temporary storage and reports what it contains: video resolution/fps/frames, the depth encoding, the "
+                "pose-file fields, the COLMAP-registered frames. Extracts a pool of 60 frames (RGB, mask, depth) spread "
+                "over the registered frames, times it and measures what we would keep. Deletes everything; only metrics "
+                "are saved. About 2–4 GB is downloaded. Can run at the same time as the m2_02 train parts.",
+                ["cpu", "internet", "both_secrets", "dlconfig"],
+                "Save Version → Save & Run All (Commit) (roughly 10–20 min).",
+                "the SUMMARY block at the end (full log: /kaggle/working/logs/m2_03_scannetpp_iphone_trial.log).",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            code(PIP_CPU.format(packages='"lz4", "imageio-ffmpeg"', log="m2_03_scannetpp_iphone_trial.log")),
+            run_step("scripts/scannetpp/scannetpp_iphone_trial.py", "", "m2_03_scannetpp_iphone_trial.log"),
         ]),
         "experiments/pilot_concat/notebooks/pilot_01_encoders.ipynb": notebook([
             header(

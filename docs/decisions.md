@@ -93,6 +93,43 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
   - The two videos decode in parallel, and the next scene downloads while the current one decodes.
   - Five parts of 50 scenes (`val`, `train-1` … `train-4`) run as parallel CPU sessions, each estimated at 1.5–3 h, each saved to a private dataset `scannetpp-iphone-*`.
 - **Fix found by a unit test:** for per-frame `depth.bin` the "whole file is one zlib block" attempt can inflate garbage and fail at the reshape (`ValueError`) rather than with `zlib.error`. The toolbox falls back on any exception, and so does `read_depth` now.
+- **Batch done (5 parallel CPU sessions, finished 2026-10-25 18:31–18:57 UTC):**
+
+  | Part | Scenes | Downloaded | Kept | Time | Mean s/scene (download / reduce) |
+  |---|---|---|---|---|---|
+  | val | 50/50 | 39.7 GB | 0.84 GB | 1.43 h | 41 / 102 |
+  | train-1 | 50/50 | 47.6 GB | 1.10 GB | 1.51 h | 44 / 107 |
+  | train-2 | 50/50 | 52.8 GB | 1.70 GB | 1.79 h | 47 / 127 |
+  | train-3 | 50/50 | 47.2 GB | 1.20 GB | 1.48 h | 41 / 105 |
+  | train-4 | 50/50 | 42.9 GB | 1.03 GB | 1.51 h | 40 / 108 |
+  | **Total** | **250/250** | **230.2 GB** | **5.87 GB** | | |
+
+  - Every scene has the full 60-frame pool.
+  - **Depth encoding:** all val scenes are per-frame lz4 uint16 mm. Some train scenes are instead per-frame **zlib float32 metres**, the toolbox's other per-frame format. They are converted exactly as the toolbox does (×1000, cast to uint16 mm). How many scenes, and their zero-depth fraction, come from `m2_05` (D13).
+  - Private datasets: `scannetpp-iphone-{val,train-1,train-2,train-3,train-4}`. With the core data that is **≈ 31.4 GB of ScanNet++ data in total**.
+
+### D13. Check every saved scene before the token expires (`m2_05_scannetpp_verify`, CPU, no ScanNet++ token)
+- **Why now:** a scene that is missing or damaged in a dataset can only be downloaded again until 2026-11-01. The download notebooks checked each tar as they wrote it; this checks what actually ended up in the eight Kaggle datasets.
+- **What it does** (`appearance_pt.scannetpp_store`, `scripts/scannetpp/scannetpp_verify.py`):
+  - Finds every `scenes/<scene>.tar` below `/kaggle/input`. It also accepts unpacked copies, `scenes/<scene>/` or `scenes/<scene>.tar/`, because it is not verified whether Kaggle unpacks tars when it builds a dataset; the layout printout will show.
+  - **Reads and decodes every file:**
+    - Pointcept arrays: dtype, shape (N, 3), finite values, labels in [-1, 99];
+    - the anonymisation indices, which must be < N;
+    - val raw files: the ply header vertex count and `segIndices` length must both equal N;
+    - every DSLR view (must be a non-`is_bad` frame) and mask (same size as its image);
+    - every iPhone RGB, mask and depth PNG (192×256, integer mm);
+    - the pose entry (4×4 `aligned_pose`, 3×3 `intrinsic`) and COLMAP registration of every pool frame.
+  - Tar sizes, vertex counts and pool sizes must match the download manifests.
+  - Truncation shows up as a tar read error, or as members ending past the end of the file.
+- **Numbers it also records** (per scene in `verify.json`, kept on Kaggle; not data, but not committed either):
+  - 2 cm grid points, i.e. `floor(coord / 0.02)` cells, which is how many points the encoders see; needed to plan chunked encoding in pilot step 2;
+  - labelled fraction;
+  - anonymised vertices, and how many of them are magenta;
+  - magenta vertices outside the mask;
+  - image sizes against `transforms_undistorted.json`'s `w`/`h`;
+  - COLMAP camera models;
+  - depth encodings and zero-depth fraction.
+- **Local test:** a fake input tree runs through the full script. Unit tests cover a half-written JPEG, a cut-off tar, an unregistered iPhone frame and a manifest mismatch. Pillow was added to the local dev dependencies for these tests.
 
 ---
 

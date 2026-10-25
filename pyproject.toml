@@ -8,7 +8,11 @@ dependencies = []
 
 [dependency-groups]
 # Local CPU-only tooling (the Mac has no NVIDIA GPU; all GPU work runs on Kaggle).
-dev = ["pytest>=8", "numpy>=1.26"]
+dev = [
+    "pytest>=8",
+    "numpy>=1.26",
+    "pillow>=12.3.0",
+]
 
 [build-system]
 requires = ["setuptools>=64"]

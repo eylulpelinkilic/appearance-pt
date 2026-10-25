@@ -50,6 +50,8 @@ SETTINGS = {
     "cpu": "**Accelerator:** None (CPU only; saves GPU quota)",
     "dlconfig": "**Input:** private dataset `scannetpp-download-config` (the official `download_scannetpp.yml` "
                 "with the token line set back to `<YOUR_TOKEN_HERE>`)",
+    "alldata": "**Input:** all eight private ScanNet++ datasets: `scannetpp-core-val`, `scannetpp-core-train-a`, "
+               "`scannetpp-core-train-b`, `scannetpp-iphone-val` and `scannetpp-iphone-train-1` … `-train-4`",
     "internet": "**Internet:** on",
     "github": "**Secrets** (Add-ons → Secrets): `GITHUB_TOKEN` attached",
     "both_secrets": "**Secrets** (Add-ons → Secrets): `GITHUB_TOKEN` and `SCANNETPP_TOKEN` attached",
@@ -249,6 +251,23 @@ def build() -> dict[str, dict]:
             code(CLONE),
             code(PIP_CPU.format(packages='"lz4", "imageio-ffmpeg"', log="m2_04_scannetpp_iphone.log")),
             run_step("scripts/scannetpp/scannetpp_iphone_fetch.py", ', "--part", PART', "m2_04_scannetpp_iphone.log"),
+        ]),
+        "notebooks/m2_05_scannetpp_verify.ipynb": notebook([
+            header(
+                "M2-05 · Check the saved ScanNet++ datasets",
+                "Reads every scene archive in the eight private ScanNet++ datasets and decodes every file in it: "
+                "Pointcept arrays, anonymisation mask, val raw mesh and annotations, every DSLR view and mask, every "
+                "iPhone frame, mask and depth map, the poses and the COLMAP image names. Sizes and counts must match the "
+                "download manifests. Downloads nothing and needs no ScanNet++ token; run it before the token expires "
+                "(2026-11-01), so a damaged scene can still be downloaded again.",
+                ["cpu", "internet", "github", "alldata"],
+                "Save Version → Save & Run All (Commit) (expected 20–60 min: about 32 GB is read and decoded).",
+                "the SUMMARY block at the end (full log: /kaggle/working/logs/m2_05_scannetpp_verify.log; per-scene "
+                "numbers: /kaggle/working/scannetpp_verify/verify.json).",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            run_step("scripts/scannetpp/scannetpp_verify.py", "", "m2_05_scannetpp_verify.log"),
         ]),
         "experiments/pilot_concat/notebooks/pilot_01_encoders.ipynb": notebook([
             header(

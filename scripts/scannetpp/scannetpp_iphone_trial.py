@@ -15,45 +15,25 @@ Needs the Kaggle secret SCANNETPP_TOKEN, the token-free download config, opencv,
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import shutil
 import statistics
-import subprocess
 import sys
 import time
-import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 
-from appearance_pt import REPO_ROOT, THIRD_PARTY
+from appearance_pt import REPO_ROOT
 from appearance_pt.envinfo import collect
 from appearance_pt.runlog import section
 from appearance_pt.scannetpp_download import (ASSET_GROUPS, SPLITS, ScannetppClient, find_config, kaggle_secret,
                                               load_config, scene_files)
+from appearance_pt.scannetpp_iphone import extract_frames, ffmpeg_exe, read_depth, toolbox_colmap
 
 MB = 1e6
 POOL = 60
-DEPTH_HW = (192, 256)  # toolbox: height, width = 192, 256
-
-
-def toolbox_colmap():
-    path = THIRD_PARTY / "scannetpp" / "common" / "utils" / "colmap.py"
-    spec = importlib.util.spec_from_file_location("scannetpp_colmap", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def ffmpeg_exe() -> str:
-    found = shutil.which("ffmpeg")
-    if found:
-        return found
-    import imageio_ffmpeg
-
-    return imageio_ffmpeg.get_ffmpeg_exe()
 
 
 def video_info(path: Path) -> dict:
@@ -64,51 +44,6 @@ def video_info(path: Path) -> dict:
                 fps=round(cap.get(cv2.CAP_PROP_FPS), 2), frames_reported=int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
     cap.release()
     return info
-
-
-def read_depth(path: Path, wanted: set[int]) -> tuple[str, int, dict[int, np.ndarray]]:
-    """(encoding, number of frames, {frame index: depth in mm as uint16}) for the wanted frame indices."""
-    h, w = DEPTH_HW
-    data = path.read_bytes()
-    try:  # one zlib block of float32 metres
-        depth = np.frombuffer(zlib.decompress(data, wbits=-zlib.MAX_WBITS), dtype=np.float32).reshape(-1, h, w)
-        return "zlib float32 (whole file)", len(depth), {i: (depth[i] * 1000).astype(np.uint16) for i in wanted if i < len(depth)}
-    except zlib.error:
-        pass
-    import lz4.block
-
-    out, frame, offset, encodings = {}, 0, 0, set()
-    while offset < len(data):
-        size = int.from_bytes(data[offset:offset + 4], "little")
-        chunk = data[offset + 4:offset + 4 + size]
-        offset += 4 + size
-        if frame in wanted or frame == 0:
-            try:
-                d = np.frombuffer(lz4.block.decompress(chunk, uncompressed_size=h * w * 2), dtype=np.uint16).reshape(h, w)
-                encodings.add("lz4 uint16 mm")
-            except Exception:  # noqa: BLE001  (the toolbox falls back to zlib float32 per frame)
-                d = (np.frombuffer(zlib.decompress(chunk, wbits=-zlib.MAX_WBITS), dtype=np.float32).reshape(h, w) * 1000).astype(np.uint16)
-                encodings.add("zlib float32 m")
-            if frame in wanted:
-                out[frame] = d
-        frame += 1
-    return "per frame: " + ", ".join(sorted(encodings)), frame, out
-
-
-def extract_frames(ffmpeg: str, video: Path, indices: list[int], out_dir: Path, ext: str, gray: bool = False) -> float:
-    """Decode only the given frame numbers (ffmpeg select filter, as the toolbox does); returns seconds."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    script = out_dir / "select.txt"
-    script.write_text("select='" + "+".join(f"eq(n,{i})" for i in indices) + "'")
-    cmd = [ffmpeg, "-y", "-loglevel", "error", "-i", str(video), "-filter_script:v", str(script), "-vsync", "vfr"]
-    cmd += ["-pix_fmt", "gray"] if gray else ["-q:v", "2"]
-    t0 = time.perf_counter()
-    subprocess.run(cmd + [str(out_dir / f"tmp_%06d{ext}")], check=True)
-    seconds = time.perf_counter() - t0
-    script.unlink()
-    for tmp, index in zip(sorted(out_dir.glob(f"tmp_*{ext}")), indices):
-        tmp.rename(out_dir / f"frame_{index:06d}{ext}")
-    return seconds
 
 
 def run_scene(client, cfg, colmap, ffmpeg, scene: str, split: str, root: Path) -> dict:

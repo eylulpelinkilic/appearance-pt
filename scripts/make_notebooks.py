@@ -228,6 +228,28 @@ def build() -> dict[str, dict]:
             code(PIP_CPU.format(packages='"lz4", "imageio-ffmpeg"', log="m2_03_scannetpp_iphone_trial.log")),
             run_step("scripts/scannetpp/scannetpp_iphone_trial.py", "", "m2_03_scannetpp_iphone_trial.log"),
         ]),
+        "notebooks/m2_04_scannetpp_iphone.ipynb": notebook([
+            header(
+                "M2-04 · ScanNet++ iPhone download, one part of the subset",
+                "Downloads the iPhone data of one part of the 250-scene subset and keeps, per scene, one tar in "
+                "`/kaggle/working/scannetpp_iphone/scenes/`: 60 frames spread over the COLMAP-registered frames (RGB "
+                "JPG, mask PNG, depth PNG in mm), the full ARKit pose file and COLMAP cameras/images (gzipped). Raw "
+                "files are deleted per scene; the next scene downloads while the current one decodes. Import this "
+                "notebook five times (one per part), set PART in each, run them side by side; afterwards create one "
+                "PRIVATE dataset per output: `scannetpp-iphone-val`, `scannetpp-iphone-train-1` … `-train-4`.",
+                ["cpu", "internet", "both_secrets", "dlconfig"],
+                "Save Version → Save & Run All (Commit). Expected ≈ 1.5–3 h per part (decoding the 60 fps videos "
+                "is the slow step).",
+                "the SUMMARY block at the end (full log: /kaggle/working/logs/m2_04_scannetpp_iphone.log; per-scene "
+                "manifest: /kaggle/working/scannetpp_iphone/manifest.json).",
+            ),
+            code(CONFIG),
+            code('# ---- which part of the scene subset this run downloads (one notebook copy per part) ----\n'
+                 'PART = "val"   # "val", "train-1", "train-2", "train-3", "train-4" (50 scenes each)'),
+            code(CLONE),
+            code(PIP_CPU.format(packages='"lz4", "imageio-ffmpeg"', log="m2_04_scannetpp_iphone.log")),
+            run_step("scripts/scannetpp/scannetpp_iphone_fetch.py", ', "--part", PART', "m2_04_scannetpp_iphone.log"),
+        ]),
         "experiments/pilot_concat/notebooks/pilot_01_encoders.ipynb": notebook([
             header(
                 "Pilot · Step 1 · Frozen point encoders on a T4",

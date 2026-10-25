@@ -78,7 +78,21 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
   - train-b: 100/100 scenes; 44.4 GB downloaded, 8.87 GB kept; 45 min. Vertices min 254,894, median 1,137,323, **max 13,710,288**. 12,094 `is_bad` frames. Every pool has 60 views.
   - **Core download complete: 250/250 scenes, 102.0 GB downloaded, 25.5 GB kept** across three notebook outputs, to be saved as the private datasets `scannetpp-core-{val,train-a,train-b}`.
   - For step 2: the largest scenes (up to 13.7M vertices) are far above the ~1.4M-grid-point single-pass encoder limit even after 2 cm sampling, so chunked encoding is required. Scenes with fewer than 60 good DSLR frames keep all of them; the pilot's ~30 views still fit.
-- **iPhone (230 GB): yes, this week, reduced to a frame pool** (about 60 frames per scene + depth + poses). Its format (video decoding, depth file, poses) needs its own small trial before the batch script is written. It runs after the core download.
+- **iPhone (230 GB): yes, this week, reduced to a frame pool** (60 frames per scene + depth + poses). See D12.
+
+### D12. iPhone trial (`m2_03`, CPU session, 2026-10-25 16:58 UTC; val scenes 09c1414f1b, 0d2ee665be, 13c3e046d7) and the batch
+- **Videos:** `rgb.mkv` and `rgb_mask.mkv` are 1920×1440 at 60 fps, with 5,396–10,896 frames.
+- **Depth:** `depth.bin` holds one record per video frame, **lz4 uint16 mm**, 256×192. In the 60 sampled frames every pixel is valid; median depth is 1.4–2.1 m.
+- **Poses:** `pose_intrinsic_imu.json` has one entry per video frame (`frame_%06d`) with `timestamp`, `pose` (4×4), `aligned_pose` (4×4), `intrinsic` (3×3) and `imu`.
+- **COLMAP:** registers every 10th frame (418–1,071 frames) with an **`OPENCV`** camera model 1920×1440, so the iPhone images still have lens distortion and M5's projection must apply it. Files: `cameras.txt`, `images.txt`, `points3D.txt`.
+- **Download:** 27–28 MB/s with 4 parallel requests.
+- **Pool extraction:** ffmpeg `select` filter on exact frame numbers, as in the toolbox's `extract_rgb_in_colmap`; it decodes the whole video. Time: RGB 39–150 s and mask 12–25 s per scene; depth 1–2 s.
+- **Kept per scene (60-frame pool):** 24–45 MB uncompressed. JPG 0.15–0.27 MB, mask PNG 6 KB, depth PNG 25 KB; the rest is the full pose JSON (13–26 MB) and COLMAP text. In the batch these are gzipped and `points3D.txt` is dropped, so the estimate is ≈ 6–9 GB for 250 scenes.
+- **Batch (`m2_04`, `scannetpp_iphone_fetch.py`):**
+  - The pool is 60 frames spread evenly over the COLMAP-registered frames (`select_pool`).
+  - The two videos decode in parallel, and the next scene downloads while the current one decodes.
+  - Five parts of 50 scenes (`val`, `train-1` … `train-4`) run as parallel CPU sessions, each estimated at 1.5–3 h, each saved to a private dataset `scannetpp-iphone-*`.
+- **Fix found by a unit test:** for per-frame `depth.bin` the "whole file is one zlib block" attempt can inflate garbage and fail at the reshape (`ValueError`) rather than with `zlib.error`. The toolbox falls back on any exception, and so does `read_depth` now.
 
 ---
 

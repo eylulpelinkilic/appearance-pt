@@ -26,6 +26,26 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
 - Verified in the toolbox: `semantic/eval/eval_semantic.py` reads `scan_mesh_mask_path` (`mesh_aligned_0.05_mask.txt`) to ignore anonymised vertices, so the mask is required.
 - Unverified until data exists: the DSLR `is_bad` frame flag. No toolbox code reads it; it is expected in `transforms_undistorted.json`.
 
+**Result (run 2026-10-25 14:54 UTC).** Splits: 856 `nvs_sem_train` scenes, 50 `nvs_sem_val`. All 2,500 files exist (0 missing, 0 unknown). Download sizes in GB (zips):
+
+| Group | Train (200) | Val (50) | Mean per scene, train/val | Max per scene |
+|---|---|---|---|---|
+| mesh + mask + segments + annotations | 8.73 | 2.00 | 0.044 / 0.040 | 0.35 |
+| semantic mesh `.ply` | 6.62 | 1.52 | 0.033 / 0.030 | 0.26 |
+| DSLR undistorted (images, masks, transforms, lists) | 80.23 | 11.02 | 0.401 / 0.220 | 2.64 |
+| DSLR COLMAP | 10.01 | 2.97 | 0.050 / 0.059 | 0.77 |
+| iPhone (video, mask, depth, poses, COLMAP) | 190.50 | 39.70 | 0.952 / 0.794 | 3.98 |
+
+- **Not needed:** the semantic mesh `.ply`. The evaluation ground truth comes from `prepare_training_data.py` (`ScannetPP_Release_Dataset`: mesh + `segments.json` + `segments_anno.json`) → `.pth` `vtx_labels` → `prepare_semantic_gt.py`, and Pointcept's preprocessing reads the same three files.
+- **Probably not needed:** DSLR COLMAP, if `transforms_undistorted.json` carries poses, intrinsics and the bad-frame flag. To check on the first scenes.
+- **Approved by the user (2026-10-25): the core ~102 GB download** (mesh + labels 10.7 GB, DSLR undistorted 91.3 GB) for the 250-scene subset, to start after a 5-scene check of download speed and kept size per scene. Batches are downloaded, reduced to what we keep, and the raw files deleted.
+- **Pending:** the iPhone download (230.2 GB, main project M5 only). The user decides this week, before the token expires on 2026-11-01.
+- **Storage:** private Kaggle datasets. Kaggle's private quota is reported as 100 GB or 200 GB per user, measured unzipped (secondary sources disagree; to be read off the dataset-creation page). Target: keep everything under 100 GB, split across datasets of at most ~20 GB, one per notebook output.
+- **Subset file:** `configs/scannetpp_subset.json` is the notebook's output file (seed 0; 200 train + 50 val, sorted, no duplicates).
+  - Two train IDs are not 10 hex characters: `7104910700000` and `717485935`. The notebook output has them exactly like that, and the code only reads, samples and writes strings, so they come from the server's `splits/nvs_sem_train.txt` itself. They look like scientific-notation corruption (`71049107e5` read as 7.1049107·10¹²).
+  - (An earlier guess that Kaggle's log viewer did this was wrong.)
+  - The size requests found every file for both scenes (0 missing). The trial notebook `m2_01` downloads and preprocesses both to confirm they are real scenes. If they are not, they get dropped and the train subset becomes 198 scenes.
+
 ---
 
 ## 2026-10-24 — Pilot (Concerto-style concatenation probe), step 1: point encoders

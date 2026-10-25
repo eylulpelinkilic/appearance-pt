@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import importlib.util
 import shutil
+import sys
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +25,36 @@ from . import THIRD_PARTY
 
 PLACEHOLDER_TOKEN = "<YOUR_TOKEN_HERE>"
 RETRIES = 5
+# candidate assets (names from download_scannetpp.yml), grouped by what they are for
+ASSET_GROUPS = {
+    "mesh+labels": ("scan_mesh_path", "scan_mesh_mask_path", "scan_mesh_segs_path", "scan_anno_json_path"),
+    "semantic_mesh_ply": ("scan_sem_mesh_path",),
+    "dslr_undistorted": ("dslr_resized_undistorted_dir", "dslr_resized_undistorted_mask_dir",
+                         "dslr_nerfstudio_transform_undistorted_path", "dslr_train_test_lists_path"),
+    "dslr_colmap": ("dslr_colmap_dir",),
+    "iphone": ("iphone_video_path", "iphone_video_mask_path", "iphone_depth_path",
+               "iphone_pose_intrinsic_imu_path", "iphone_colmap_dir"),
+}
+# what the pilot and M2 download (approved 2026-10-25, docs/decisions.md D9)
+CORE_ASSETS = ASSET_GROUPS["mesh+labels"] + ASSET_GROUPS["dslr_undistorted"]
+SPLITS = {"train": "nvs_sem_train", "val": "nvs_sem_val"}
+
+
+def find_config(path: Path) -> Path:
+    """The download_scannetpp*.yml at `path`, or the first one found below it (Kaggle: /kaggle/input)."""
+    path = Path(path)
+    if path.is_file():
+        return path
+    found = sorted(path.glob("**/download_scannetpp*.yml"))
+    if not found:
+        sys.exit(f"!! no download_scannetpp*.yml under {path}: attach the private dataset with the token-free config")
+    return found[0]
+
+
+def kaggle_secret(name: str) -> str:
+    from kaggle_secrets import UserSecretsClient
+
+    return UserSecretsClient().get_secret(name)
 
 
 class RemoteError(RuntimeError):
@@ -132,3 +164,17 @@ class ScannetppClient:
         part.rename(local)
         time.sleep(self.pause)
         return local.stat().st_size
+
+    def fetch(self, entry: dict, root: Path) -> dict:
+        """Download one scene_files() entry under `root`; zipped assets are unpacked next to the zip
+        (as the official script does) and the zip deleted. Returns sizes and the elapsed time."""
+        t0 = time.perf_counter()
+        target = Path(root) / entry["remote"]
+        downloaded = unpacked = self.download(entry["remote"], target)
+        if entry["zipped"]:
+            with zipfile.ZipFile(target) as z:
+                z.extractall(target.parent)  # zipfile drops absolute paths and ".." parts
+                unpacked = sum(i.file_size for i in z.infolist())
+            target.unlink()
+        return dict(asset=entry["asset"], download_bytes=downloaded, unpacked_bytes=unpacked,
+                    seconds=time.perf_counter() - t0)

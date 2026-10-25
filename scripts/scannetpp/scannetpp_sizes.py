@@ -20,36 +20,11 @@ from pathlib import Path
 
 from appearance_pt.envinfo import collect
 from appearance_pt.runlog import section
-from appearance_pt.scannetpp_download import PLACEHOLDER_TOKEN, ScannetppClient, choose_subset, load_config, scene_files
+from appearance_pt.scannetpp_download import (ASSET_GROUPS, PLACEHOLDER_TOKEN, SPLITS, ScannetppClient, choose_subset,
+                                              find_config, kaggle_secret, load_config, scene_files)
 
 GB = 1e9
-SPLITS = {"train": "nvs_sem_train", "val": "nvs_sem_val"}
-# candidate assets (names from download_scannetpp.yml), grouped by what they are for
-ASSET_GROUPS = {
-    "mesh+labels": ("scan_mesh_path", "scan_mesh_mask_path", "scan_mesh_segs_path", "scan_anno_json_path"),
-    "semantic_mesh_ply": ("scan_sem_mesh_path",),
-    "dslr_undistorted": ("dslr_resized_undistorted_dir", "dslr_resized_undistorted_mask_dir",
-                         "dslr_nerfstudio_transform_undistorted_path", "dslr_train_test_lists_path"),
-    "dslr_colmap": ("dslr_colmap_dir",),
-    "iphone": ("iphone_video_path", "iphone_video_mask_path", "iphone_depth_path",
-               "iphone_pose_intrinsic_imu_path", "iphone_colmap_dir"),
-}
 GROUP_OF = {asset: group for group, assets in ASSET_GROUPS.items() for asset in assets}
-
-
-def find_config(path: Path) -> Path:
-    if path.is_file():
-        return path
-    found = sorted(path.glob("**/download_scannetpp*.yml"))
-    if not found:
-        sys.exit(f"!! no download_scannetpp*.yml under {path}: attach the private dataset with the token-free config")
-    return found[0]
-
-
-def kaggle_secret(name: str) -> str:
-    from kaggle_secrets import UserSecretsClient
-
-    return UserSecretsClient().get_secret(name)
 
 
 def summarize(rows: list[dict]) -> list[dict]:

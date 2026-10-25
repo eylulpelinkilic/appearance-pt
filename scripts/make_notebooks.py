@@ -27,6 +27,13 @@ CODE_DIR, COMMIT = clone_repo(REPO, REF)
 PYTHONPATH = {"PYTHONPATH": f"{CODE_DIR}/src"}
 '''
 
+OPEN3D_CPU = '''\
+# CPU session: Kaggle's CPU image has its own torch, so the GPU wheelhouse does not apply. ScanNet++
+# preprocessing needs only open3d on top: the wheelhouse's pinned version, from PyPI.
+run_logged([sys.executable, "-m", "pip", "install", "--quiet", "open3d==0.20.0"],
+           "/kaggle/working/logs/{log}", cwd=CODE_DIR)
+'''
+
 PILOT_PATH = '''\
 # pilot scripts import the Utonia and Sonata inference packages (pinned submodules) and our src/
 PILOT_PYTHONPATH = {"PYTHONPATH": ":".join(f"{CODE_DIR}/{p}" for p in ("src", "third_party/utonia", "third_party/sonata"))}
@@ -158,6 +165,24 @@ def build() -> dict[str, dict]:
             code(CONFIG),
             code(CLONE),
             run_step("scripts/scannetpp/scannetpp_sizes.py", "", "m2_00_scannetpp_sizes.log"),
+        ]),
+        "notebooks/m2_01_scannetpp_trial.ipynb": notebook([
+            header(
+                "M2-01 · ScanNet++ trial download (5 scenes)",
+                "Downloads the core assets (mesh + labels; undistorted DSLR images, masks, poses) of 3 val scenes and "
+                "of the two subset scenes with unusual IDs, into temporary storage. Measures download speed (sequential "
+                "and parallel), unpacked size, the size after Pointcept's ScanNet++ preprocessing and the size we would "
+                "keep; reports DSLR image count/resolution, the pose-file fields (bad-frame flag?) and the anonymisation "
+                "mask format. Deletes every scene afterwards; only metrics are saved. About 2 GB is downloaded.",
+                ["cpu", "internet", "both_secrets", "dlconfig"],
+                "Save Version → Save & Run All (Commit) (roughly 10–30 min, depending on download speed).",
+                "the SUMMARY block at the end (full log: /kaggle/working/logs/m2_01_scannetpp_trial.log; "
+                "per-scene details: /kaggle/working/scannetpp_trial/trial.json).",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            code(OPEN3D_CPU.format(log="m2_01_scannetpp_trial.log")),
+            run_step("scripts/scannetpp/scannetpp_trial.py", "", "m2_01_scannetpp_trial.log"),
         ]),
         "experiments/pilot_concat/notebooks/pilot_01_encoders.ipynb": notebook([
             header(

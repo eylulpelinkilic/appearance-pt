@@ -103,6 +103,22 @@ def test_errors_never_contain_the_token(monkeypatch):
         assert e.value.__cause__ is None and e.value.__suppress_context__
 
 
+def test_fetch_unpacks_zips_next_to_them(monkeypatch, tmp_path):
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("resized_undistorted_images/DSC0001.JPG", b"jpegbytes")
+    payload = buf.getvalue()
+    client = dl.ScannetppClient(CFG, TOKEN, pause=0)
+    monkeypatch.setattr(dl.urllib.request, "urlopen", lambda request, timeout: FakeResponse(payload))
+    entry = dl.scene_files(CFG, "s1", "nvs_sem_val", ["dslr_resized_undistorted_dir"])[0]
+    stats = client.fetch(entry, tmp_path)
+    assert (tmp_path / "data/s1/dslr/resized_undistorted_images/DSC0001.JPG").read_bytes() == b"jpegbytes"
+    assert not (tmp_path / "data/s1/dslr/resized_undistorted_images.zip").exists()
+    assert stats["download_bytes"] == len(payload) and stats["unpacked_bytes"] == 9
+
+
 def test_download_writes_via_part_file(monkeypatch, tmp_path):
     client = dl.ScannetppClient(CFG, TOKEN, pause=0)
     monkeypatch.setattr(dl.urllib.request, "urlopen", lambda request, timeout: FakeResponse(b"payload"))

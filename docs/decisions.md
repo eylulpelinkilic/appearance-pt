@@ -27,6 +27,19 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
   - keeps `faces/<scene>.npz` per scene: triangles (int32), the vertex count, and the SHA-1 of the float32 vertex coordinates, i.e. of Pointcept's `coord.npy`. With the core train datasets attached, the hash is checked against `coord.npy`, so the triangles index the same vertices in the same order. Val showed they are identical (P6 results);
   - output becomes the private dataset `scannetpp-train-faces`.
 - **Size survey for the next phase** (HEAD requests only, 250 subset scenes, extrapolated to the 856 + 50 scenes): dense laser scans (`pc_aligned.ply`, its mask, scanner poses), full-resolution DSLR images and masks, and the panorama (panocam) assets. Whether to download any of them is the user's decision, and must come before 2026-11-01.
+- **Run (2026-10-26 12:51 UTC, 22 min, CPU):**
+  - **Faces: 200/200 train scenes; vertex order equal to Pointcept's `coord.npy` in 200/200.** Triangles per scene: 434,792 / 2,329,795 / 27,323,868 (min / median / max). 7.3 GB downloaded, **2.91 GB kept**, for the private dataset `scannetpp-train-faces`.
+  - **Sizes** (download sizes; files missing 0 in every group):
+
+    | Group | Subset train (200) | Subset val (50) | Mean per scene (train / val) | Max per scene | All 856 + 50 scenes at the mean |
+    |---|---|---|---|---|---|
+    | dense laser scans (`pc_aligned` + mask + poses) | 148.9 GB | 30.8 GB | 0.75 / 0.62 GB | 4.71 GB | ≈ 668 GB |
+    | panocam (all 10 assets) | 60.9 GB | 17.3 GB | 0.30 / 0.35 GB | 1.65 GB | ≈ 277 GB |
+    | full-resolution DSLR images + masks | 2,161.9 GB | 321.0 GB | 10.8 / 6.4 GB | 61.1 GB | ≈ 9.6 TB |
+
+  - **Full-resolution DSLR is out of reach** (2.5 TB for the subset alone).
+  - **The laser scans (180 GB for the subset) fit only if reduced per scene while downloading**, as the core data was (D11). The kept size depends on the resolution the next phase needs; a 5-scene trial measures it.
+  - **Decision (user, 2026-10-26): skip the laser scans, panocam and full-resolution DSLR.** No further ScanNet++ downloads are planned before the token expires on 2026-11-01. The next phase works with the mesh (vertices + triangles), the 60-view DSLR pools (1168×1752, undistorted) and the iPhone pools.
 
 ### D13 (results). Dataset check `m2_05`, 2026-10-25 23:24 UTC, CPU, 4 processes
 - **Mount paths.** Kaggle now mounts datasets at `/kaggle/input/datasets/<user>/<slug>/`, not `/kaggle/input/<slug>/`. `find_scenes` searches recursively, so nothing had to change.
@@ -250,6 +263,10 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
   - 200 train scenes instead of all 856;
   - one encoder pass per scene, no test-time augmentation;
   - DINO averaged over 30 DSLR views.
+- **First `pilot_03` run (2026-10-26):** steps 3 and 4 finished; step 5 stopped while building the GT. The toolbox's `MapLabelToIndex` always filters `map_benchmark.csv` on a `count` column, with threshold 0 by default (keep everything), and the released file has no such column (`KeyError: 'count'`). Pointcept's copy of this function drops the filter for the same reason.
+  - **Fix:** `official.use_toolbox` makes the filter keep every row when the column is missing and the threshold is 0. The class mapping is unchanged, and the toolbox's filter still applies when counts exist (test with the real toolbox function).
+  - Step 5 reruns alone in `pilot_04_eval`, from the `probes.pt` saved by pilot_03.
+  - **Lesson:** the CPU end-to-end test stood in for the toolbox GT, so it never ran the toolbox's GT path.
 - **CPU tests:** an end-to-end run of steps 3–5 on synthetic rooms, with stub encoder packages, fake encoders, the DINO stand-in and a stand-in for the toolbox GT. It checks the agreement with the toolbox's metric, and that the anonymised vertices are excluded.
 
 ### S1. Storage for the step-3 training features, now with Concerto (decided 2026-10-26: option (a))

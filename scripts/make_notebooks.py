@@ -52,6 +52,15 @@ OCCLUSION = "v2"  # z-buffer variant (lifting.OCCLUSION): best F1 against the me
 CONCERTO = "concerto"  # concerto_large_origin: healthy in the half-room probe; "concerto_prerelease" is the alternative
 '''
 
+FIND_PROBES = '''\
+# the step-4 probes, from the attached output of pilot_03_probes
+import pathlib
+found = sorted(pathlib.Path("/kaggle/input").rglob("step4/probes.pt"))
+assert found, "attach the output of pilot_03_probes as an input (Add Input -> Your Work -> Notebooks)"
+PROBES = str(found[0])
+print(PROBES)
+'''
+
 SHOW_IMAGES = '''\
 # the step-2 visual checks (ScanNet++-derived: they stay in this private notebook)
 from IPython.display import Image as ShowImage, display
@@ -69,6 +78,8 @@ SETTINGS = {
                "`scannetpp-core-train-b`, `scannetpp-iphone-val` and `scannetpp-iphone-train-1` … `-train-4`",
     "coreval": "**Input:** private dataset `scannetpp-core-val`",
     "coreall": "**Inputs:** private datasets `scannetpp-core-val`, `scannetpp-core-train-a` and `scannetpp-core-train-b`",
+    "probes": "**Input:** the output of your `pilot_03_probes` run (Add Input → Your Work → Notebooks), which holds "
+              "`pilot_concat/step4/probes.pt`",
     "coretrain": "**Inputs (optional, for the vertex-order check):** private datasets `scannetpp-core-train-a` and "
                  "`scannetpp-core-train-b`",
     "internet": "**Internet:** on",
@@ -379,6 +390,25 @@ def build() -> dict[str, dict]:
                      "pilot_03_step3.log", env="PILOT_PYTHONPATH"),
             run_step("experiments/pilot_concat/step4_probes.py", "", "pilot_03_step4.log", env="PILOT_PYTHONPATH"),
             run_step("experiments/pilot_concat/step5_eval.py", "", "pilot_03_step5.log", env="PILOT_PYTHONPATH"),
+        ]),
+        "experiments/pilot_concat/notebooks/pilot_04_eval.ipynb": notebook([
+            header(
+                "Pilot · Step 5 only (evaluation on val), with the probes of a finished pilot_03 run",
+                "Runs step 5 (every probe on the 50 val scenes, official ScanNet++ metric, cross-check with the "
+                "toolbox's eval_semantic) from the `probes.pt` that `pilot_03_probes` saved, without redoing steps 3 "
+                "and 4. No `SCANNETPP_TOKEN` needed.",
+                ["gpu", "internet", "github", "pin", "wheels", "coreval", "probes"],
+                "Save Version → Save & Run All (Commit) (expected about 45–60 min).",
+                "the SUMMARY block of step 5 (full log: /kaggle/working/logs/pilot_04_step5.log; results: "
+                "/kaggle/working/pilot_concat/step5/results.json).",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            code(PILOT_PATH),
+            code(FIND_PROBES),
+            run_step("scripts/setup/install_env.py", "", "pilot_04_install.log"),
+            run_step("experiments/pilot_concat/step5_eval.py", ', "--probes", PROBES', "pilot_04_step5.log",
+                     env="PILOT_PYTHONPATH"),
         ]),
     }
 

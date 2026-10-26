@@ -42,8 +42,8 @@ Room", 3DV 2026) is related work only.
 - Outputs as versioned PRIVATE Kaggle Datasets (ScanNet++ forbids redistribution); check Kaggle's
   dataset size limits first. Process 5 scenes first, measure size/scene, extrapolate, report.
 - Subset: all 50 val scenes + fixed random 200 train scenes (fixed seed; list committed).
-- **ScanNet++ token (extended on 2026-10-25, new token) expires 2026-11-01**: meshes + semantics for
-  the subset first; iPhone data later, only for those scenes and only needed frames.
+- **ScanNet++ token (extended on 2026-10-25, new token) expires 2026-11-01.** Everything planned is downloaded
+  (core, iPhone pools, train triangles); dense laser scans, panocam and full-res DSLR were skipped (D15).
 - Kept per scene (private datasets `scannetpp-core-*`, `scannetpp-iphone-*`): Pointcept arrays, a 60-view
   DSLR pool with poses, val raw mesh + annotations, a 60-frame iPhone pool with depth and poses.
   Kaggle unpacks the tars into directories; read them through `appearance_pt.scannetpp_store`.

@@ -24,6 +24,21 @@ VAL_FILES = ("mesh_aligned_0.05.ply", "mesh_aligned_0.05_mask.txt", "segments.js
 def use_toolbox() -> None:
     if str(TOOLBOX) not in sys.path:
         sys.path.insert(0, str(TOOLBOX))
+    import semantic.prep.map_semantic as map_semantic
+
+    if not getattr(map_semantic.filter_classes, "keeps_all_without_counts", False):
+        original = map_semantic.filter_classes
+
+        def filter_classes(mapping, thresh, count_type):
+            """The released map_benchmark.csv has no `count` column, but MapLabelToIndex always filters on it, with
+            count_thresh 0 by default (keep every class). Pointcept's copy of this code drops the filter for the same
+            reason (preprocess_scannetpp.filter_map_classes); the class mapping itself is unchanged."""
+            if count_type not in mapping.columns and not thresh:
+                return mapping
+            return original(mapping, thresh, count_type)
+
+        filter_classes.keeps_all_without_counts = True
+        map_semantic.filter_classes = filter_classes
 
 
 class OfficialGT:

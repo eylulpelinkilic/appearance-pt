@@ -4,15 +4,22 @@ For 3 val scenes (fewest, median and most vertices, from the download manifest; 
   1. picks 30 of the scene's kept DSLR views, evenly over the capture order (is_bad frames were never kept),
   2. on the first scene, scores the pose convention: agreement of vertex colours with the photos for the toolbox
      inverse (appearance_pt.scannetpp_cameras.dslr_c2w) and two wrong alternatives,
-  3. computes DINOv2 ViT-L/14 patch features at 518 x 770 px and lifts them onto every vertex (lifting.py),
-  4. reports how many vertices (and labelled vertices) no view sees, views per vertex, and time per stage,
-  5. saves the visual checks to <out>: overlay_<scene>.png (photo; projected points coloured by depth; vertex colours
+  3. scores the z-buffer variants (lifting.OCCLUSION) against exact visibility from rays cast at the val mesh
+     (Open3D) on 5 views: precision (z-buffer-visible points that are visible) and recall (visible points kept),
+  4. computes DINOv2 ViT-L/14 (with registers) patch features at 518 x 770 px and lifts them onto every vertex,
+  5. reports how many vertices (and labelled vertices) no view sees, with the chosen variant and with v0, views per
+     vertex, and time per stage,
+  6. measures view consistency: cosine between one view's feature at a point and the mean of the other views (after
+     subtracting the scene's mean patch feature), by angle from the optical axis, incidence angle and depth,
+  7. saves the visual checks to <out>: overlay_<scene>.png (photo; projected points coloured by depth; vertex colours
      rendered from that camera; DINO patch PCA of the photo; lifted features rendered with the same PCA; views per
-     vertex) and topdown_<scene>.png (vertex colours | lifted DINO PCA, never-seen vertices grey).
+     vertex; visibility with v0, with the chosen variant and from the mesh) and topdown_<scene>.png (vertex colours |
+     lifted DINO PCA | views per vertex). Never-seen vertices are white, a colour the PCA rendering does not use.
 It also records free disk and RAM for planning step 3. Results: <out>/step2_summary.json. The images are
 ScanNet++-derived, so they stay on Kaggle.
 
 Usage: python experiments/pilot_concat/step2_lift.py [--input /kaggle/input] [--out DIR] [--scenes ID ...] [--views 30]
+       [--occlusion v1]
 Needs PYTHONPATH=src:experiments/pilot_concat (the notebook sets it), a GPU and Internet (Hugging Face weights).
 """
 
@@ -36,7 +43,8 @@ from appearance_pt.envinfo import collect
 from appearance_pt.runlog import section
 from appearance_pt.scannetpp_cameras import dslr_c2w, dslr_frames, dslr_intrinsics, pick_views
 from appearance_pt.scannetpp_store import SceneArchive, anonymised_vertices, decode_image, find_scenes, manifest_row
-from lifting import DINO, DINO_HW, Z_NEAR, View, colour_agreement, dino_patches, lift, load_dino, pca3, preprocess, project, visible, zbuffer
+from lifting import (DINO, DINO_HW, OCCLUSION, Z_NEAR, View, colour_agreement, dino_patches, facing, in_image, lift, load_dino,
+                     pca3, preprocess, project, sample, visible, zbuffer)
 
 CONVENTIONS = {
     "toolbox inverse (expected)": dslr_c2w,
@@ -45,7 +53,11 @@ CONVENTIONS = {
 }
 EXPECTED = "toolbox inverse (expected)"
 PANEL = 0.5  # overlay panels at half resolution
-GREY = np.array([110, 110, 110], np.uint8)
+NEVER = np.array([255, 255, 255], np.uint8)  # never seen; PCA colours stay within [0, PCA_MAX]
+PCA_MAX = 220
+VIS_COL = (np.array([60, 200, 60], np.uint8), np.array([200, 50, 50], np.uint8))  # visible, hidden
+TRUTH_TOL = 0.02  # metres: visible if no mesh surface is hit more than this before the point
+BINS = {"axis_deg": [0, 20, 40, 60, 90], "incidence_deg": [0, 30, 60, 75, 90], "depth_m": [0, 1, 2, 4, 100]}
 
 
 def sync(dev: str) -> None:
@@ -68,7 +80,7 @@ def mask_valid(m: np.ndarray) -> np.ndarray:
 def load_scene(path: Path, scene: str, n_views: int) -> dict:
     with SceneArchive(path) as arc:
         pc = f"pointcept/val/{scene}/"
-        s = {k: arc.npy(f"{pc}{k}.npy") for k in ("coord", "color", "segment")}
+        s = {k: arc.npy(f"{pc}{k}.npy") for k in ("coord", "color", "normal", "segment")}
         s["anonymised"] = np.unique(anonymised_vertices(arc))
         transforms = arc.json("dslr/nerfstudio/transforms_undistorted.json")
         frames = dslr_frames(transforms)
@@ -83,26 +95,140 @@ def load_scene(path: Path, scene: str, n_views: int) -> dict:
     return s
 
 
-def make_views(points, s, convention, dev, indices) -> list[View]:
+def w2c_of(s, i, convention) -> np.ndarray:
+    return np.linalg.inv(CONVENTIONS[convention](s["views"][i]["T"]))
+
+
+def make_views(points, s, convention, dev, indices, occ) -> list[View]:
     K = torch.tensor(s["K"], dtype=torch.float32, device=dev)
     views = []
     for i in indices:
-        v = s["views"][i]
-        w2c = torch.tensor(np.linalg.inv(CONVENTIONS[convention](v["T"])), dtype=torch.float32, device=dev)
-        view = View(v["name"], w2c, K, s["hw"], torch.from_numpy(v["valid"]).to(dev))
+        w2c = torch.tensor(w2c_of(s, i, convention), dtype=torch.float32, device=dev)
+        view = View(s["views"][i]["name"], w2c, K, s["hw"], torch.from_numpy(s["views"][i]["valid"]).to(dev), occ=occ)
         view.zbuf = zbuffer(points, view)
         views.append(view)
     return views
 
 
-def agreement(points, s, convention, dev, indices, colors, keep) -> dict:
+def agreement(points, normals, s, convention, dev, indices, colors, keep, occ) -> dict:
     rows = []
-    for i, view in zip(indices, make_views(points, s, convention, dev, indices)):
+    for i, view in zip(indices, make_views(points, s, convention, dev, indices, occ)):
         image = torch.from_numpy(decode_image(s["views"][i]["jpg"]).copy()).to(dev)
-        rows.append(colour_agreement(points, colors, keep, view, image))
+        rows.append(colour_agreement(points, colors, keep, view, image, normals))
     rs = [r["r"] for r in rows if r["r"] is not None]
     return dict(r_mean=round(float(np.mean(rs)), 3) if rs else None, r_per_view=[r["r"] for r in rows],
                 visible_frac=round(float(np.mean([r["n_visible"] for r in rows])) / len(points), 4))
+
+
+def mesh_raycaster(path: Path, coord: np.ndarray, tmp: Path):
+    """(Open3D raycasting scene of the scene's mesh, facts) for a val scene; (None, reason) without Open3D or a mesh."""
+    try:
+        import open3d as o3d
+    except ImportError:
+        return None, "skipped: open3d not installed"
+    with SceneArchive(path) as arc:
+        if "scans/mesh_aligned_0.05.ply" not in arc.names("scans/"):
+            return None, "skipped: no mesh in the archive"
+        tmp.mkdir(parents=True, exist_ok=True)
+        ply = tmp / "mesh_aligned_0.05.ply"
+        ply.write_bytes(arc.read("scans/mesh_aligned_0.05.ply"))
+    mesh = o3d.io.read_triangle_mesh(str(ply))
+    ply.unlink()
+    verts = np.asarray(mesh.vertices)
+    same = len(verts) == len(coord)
+    facts = dict(n_triangles=len(mesh.triangles), vertices_match_coord=bool(same and np.abs(verts - coord).max() < 1e-4),
+                 max_abs_vs_coord=round(float(np.abs(verts - coord).max()), 6) if same else None)
+    rc = o3d.t.geometry.RaycastingScene()
+    rc.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
+    return rc, facts
+
+
+def truth_visible(rc, w2c: np.ndarray, pts: np.ndarray) -> np.ndarray:
+    """True where the first mesh hit along the ray from the camera centre to the point is not before the point."""
+    import open3d as o3d
+
+    centre = -w2c[:3, :3].T @ w2c[:3, 3]
+    d = pts.astype(np.float64) - centre
+    dist = np.linalg.norm(d, axis=1)
+    rays = np.hstack([np.broadcast_to(centre, d.shape), d / dist[:, None]]).astype(np.float32)
+    hit = rc.cast_rays(o3d.core.Tensor(rays))["t_hit"].numpy()
+    return hit >= dist - TRUTH_TOL
+
+
+def candidates(points, view: View):
+    """Projections of all points and the mask of those inside the image on a usable mask pixel."""
+    u, v, z = project(points, view.w2c, view.K)
+    ok = in_image(u, v, z, view.hw)
+    ok &= view.valid[v.long().clamp(0, view.hw[0] - 1), u.long().clamp(0, view.hw[1] - 1)]
+    return u, v, z, ok
+
+
+def occlusion_check(rc, points, normals, s, convention, dev, indices, n_max=300_000, seed=0) -> dict:
+    """Precision and recall of each z-buffer variant against mesh visibility, on up to n_max candidates per view."""
+    gen = torch.Generator(device="cpu").manual_seed(seed)
+    counts = {k: np.zeros(3, np.int64) for k in OCCLUSION}  # true positive, false positive, false negative
+    truth_frac, backfacing = [], []
+    for i in indices:
+        base = make_views(points, s, convention, dev, [i], OCCLUSION["v0"])[0]
+        u, v, z, ok = candidates(points, base)
+        idx = ok.nonzero().squeeze(1)
+        if len(idx) > n_max:
+            idx = idx[torch.randperm(len(idx), generator=gen)[:n_max].to(dev)]
+        truth = torch.from_numpy(truth_visible(rc, w2c_of(s, i, convention), s["coord"][idx.cpu().numpy()])).to(dev)
+        truth_frac.append(float(truth.float().mean()))
+        nr = facing(u[idx], v[idx], normals[idx], base)[2]
+        backfacing.append(float((nr[truth] > 0).float().mean()))
+        for k, occ in OCCLUSION.items():
+            view = View(base.name, base.w2c, base.K, base.hw, base.valid, occ=occ)
+            view.zbuf = zbuffer(points, view)
+            vis = visible(u[idx], v[idx], z[idx], view, normals[idx])
+            counts[k] += [int((vis & truth).sum()), int((vis & ~truth).sum()), int((~vis & truth).sum())]
+    return dict(variants={k: dict(precision=round(tp / max(tp + fp, 1), 4), recall=round(tp / max(tp + fn, 1), 4))
+                          for k, (tp, fp, fn) in counts.items()},
+                truth_visible_frac=round(float(np.mean(truth_frac)), 4), backfacing_of_visible=round(float(np.mean(backfacing)), 4))
+
+
+def seen_counts(points, normals, views, occ, chunk=1_000_000) -> torch.Tensor:
+    """Views per point with another occlusion variant (visibility only, no features)."""
+    count = torch.zeros(len(points), dtype=torch.int32, device=points.device)
+    for view in views:
+        other = View(view.name, view.w2c, view.K, view.hw, view.valid, occ=occ)
+        other.zbuf = zbuffer(points, other)
+        for start in range(0, len(points), chunk):
+            p = points[start:start + chunk]
+            count[start:start + chunk] += visible(*project(p, other.w2c, other.K), other, normals[start:start + chunk]).int()
+    return count
+
+
+def view_consistency(points, normals, views, idx, mean_feat, count, centre) -> dict:
+    """Centred cosine between one view's feature at a point and the mean of the other views that see it (points seen
+    by >= 2 views), binned; `baseline` pairs the view's feature with another point's mean from the same view."""
+    total = mean_feat * count[:, None].float()
+    p, nrm = points[idx], normals[idx]
+    gen = torch.Generator(device="cpu").manual_seed(0)
+    rows = []
+    for view in views:
+        u, v, z = project(p, view.w2c, view.K)
+        j = (visible(u, v, z, view, nrm) & (count >= 2)).nonzero().squeeze(1)
+        if len(j) < 2:
+            continue
+        f = sample(view.feat, u[j], v[j], view.hw)
+        loo = (total[j] - f) / (count[j, None].float() - 1)
+        cos = F.cosine_similarity(f - centre, loo - centre, dim=1)
+        other = torch.randperm(len(j), generator=gen).to(loo.device)  # vertex order can be spatially coherent
+        base = F.cosine_similarity(f - centre, loo[other] - centre, dim=1)
+        n, r, nr = facing(u[j], v[j], nrm[j], view)
+        axis = torch.rad2deg(torch.atan(torch.hypot(r[:, 0], r[:, 1])))
+        inc = torch.rad2deg(torch.acos((nr.abs() / (r.norm(dim=1) * n.norm(dim=1)).clamp(min=1e-9)).clamp(max=1)))
+        rows.append(torch.stack([cos, base, axis, inc, z[j]], 1).cpu())
+    if not rows:
+        return {}
+    a = torch.cat(rows).numpy()
+    out = dict(n=len(a), cos=round(float(a[:, 0].mean()), 3), baseline=round(float(a[:, 1].mean()), 3))
+    for col, (key, edges) in zip((2, 3, 4), BINS.items()):
+        out[key] = {f"{lo}-{hi}": (round(float(a[m, 0].mean()), 3), round(float(m.mean()), 3))
+                    for lo, hi in zip(edges[:-1], edges[1:]) if (m := (a[:, col] >= lo) & (a[:, col] < hi)).any()}
+    return out
 
 
 def jet(t: np.ndarray) -> np.ndarray:
@@ -156,11 +282,13 @@ def grid(panels: list[Image.Image], cols: int) -> Image.Image:
 
 def run_scene(model, path, scene, args, dev, conventions: list[str]) -> dict:
     t = {}
+    occ = OCCLUSION[args.occlusion]
     t0 = time.perf_counter()
     s = load_scene(path, scene, args.views)
     t["load_s"] = time.perf_counter() - t0
     n = len(s["coord"])
     points = torch.from_numpy(s["coord"]).to(dev)
+    normals = torch.from_numpy(s["normal"]).float().to(dev)
     colors = torch.from_numpy(s["color"]).to(dev)
     keep = torch.ones(n, dtype=torch.bool, device=dev)
     keep[torch.from_numpy(s["anonymised"]).to(dev)] = False
@@ -169,16 +297,28 @@ def run_scene(model, path, scene, args, dev, conventions: list[str]) -> dict:
                mask_valid_frac=round(float(np.mean([v["valid"].mean() for v in s["views"]])), 4))
     print(f"  {n:,} vertices, {len(s['views'])} views, K {out['K']}, image {s['hw']}, mask valid {out['mask_valid_frac']:.3f}")
 
-    scores = out["pose_agreement"] = {c: agreement(points, s, c, dev, check_idx, colors, keep) for c in conventions}
+    scores = out["pose_agreement"] = {c: agreement(points, normals, s, c, dev, check_idx, colors, keep, occ) for c in conventions}
     for c, a in scores.items():
         print(f"  pose convention {c:34s} colour r {a['r_mean']}  visible {a['visible_frac']:.3f}  per view {a['r_per_view']}")
     best = out["convention"] = max(scores, key=lambda c: -2 if scores[c]["r_mean"] is None else scores[c]["r_mean"])
     if best != EXPECTED:
         print(f"  !! the expected convention is not the best: using {best!r}; see the overlay")
 
+    t0 = time.perf_counter()
+    rc, out["mesh"] = mesh_raycaster(path, s["coord"], args.tmp)
+    if rc is not None:
+        out["occlusion_check"] = occlusion_check(rc, points, normals, s, best, dev, check_idx)
+        for k, r in out["occlusion_check"]["variants"].items():
+            print(f"  occlusion {k} {OCCLUSION[k]}: precision {r['precision']:.4f}, recall {r['recall']:.4f}")
+        print(f"  mesh: {out['mesh']}; truly visible {out['occlusion_check']['truth_visible_frac']:.3f} of in-image points; "
+              f"back-facing normals among visible points {out['occlusion_check']['backfacing_of_visible']:.3f}")
+    else:
+        print(f"  occlusion check {out['mesh']}")
+    t["occlusion_check_s"] = time.perf_counter() - t0
+
     sync(dev)
     t0 = time.perf_counter()
-    views = make_views(points, s, best, dev, range(len(s["views"])))
+    views = make_views(points, s, best, dev, range(len(s["views"])), occ)
     sync(dev)
     t["zbuffer_s"] = time.perf_counter() - t0
     t0 = time.perf_counter()
@@ -200,16 +340,26 @@ def run_scene(model, path, scene, args, dev, conventions: list[str]) -> dict:
     lo, hi = torch.quantile(proj, 0.01, dim=0), torch.quantile(proj, 0.99, dim=0)
 
     def to_rgb(x):
-        return (((x - mean) @ basis - lo) / (hi - lo)).clamp(0, 1).mul(255).byte()
+        return (((x - mean) @ basis - lo) / (hi - lo)).clamp(0, 1).mul(PCA_MAX).byte()
 
+    gen = torch.Generator(device="cpu").manual_seed(0)
+    probe_idx = keep.nonzero().squeeze(1)[torch.randperm(int(keep.sum()), generator=gen)[:args.consistency_points].to(dev)]
+    probe_idx = probe_idx.sort().values
+    probe_feat = torch.zeros(len(probe_idx), feats.shape[1], device=dev)
     t0 = time.perf_counter()
     count = torch.empty(n, dtype=torch.int32, device=dev)
     rgb = torch.empty(n, 3, dtype=torch.uint8, device=dev)
-    for start, feat, cnt in lift(points, views, chunk=args.chunk):
+    for start, feat, cnt in lift(points, views, normals, chunk=args.chunk):
         count[start:start + len(cnt)] = cnt
         rgb[start:start + len(cnt)] = to_rgb(feat)
+        here = (probe_idx >= start) & (probe_idx < start + len(cnt))
+        probe_feat[here] = feat[probe_idx[here] - start]
     sync(dev)
     t["lift_s"] = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    count_v0 = seen_counts(points, normals, views, OCCLUSION["v0"]).cpu().numpy() if args.occlusion != "v0" else None
+    out["consistency"] = view_consistency(points, normals, views, probe_idx, probe_feat, count[probe_idx], mean)
+    t["diagnostics_s"] = time.perf_counter() - t0
     out["seconds"] = {k: round(v, 2) for k, v in t.items()}
 
     count_np, rgb_np = count.cpu().numpy(), rgb.cpu().numpy()
@@ -219,36 +369,59 @@ def run_scene(model, path, scene, args, dev, conventions: list[str]) -> dict:
     out.update(seen=round(float(seen.mean()), 4), seen_labelled=round(float(seen[lab].mean()), 4),
                views_per_seen=dict(mean=round(float(count_np[seen].mean()), 2), median=float(np.median(count_np[seen]))),
                views_hist={f"{a}-{b}" if b < 10**6 else f"{a}+": round(float(((count_np >= a) & (count_np <= b)).mean()), 4) for a, b in bins})
-    print(f"  seen by >= 1 view: {out['seen']:.3f} of vertices, {out['seen_labelled']:.3f} of labelled; views per seen vertex "
-          f"{out['views_per_seen']}; histogram {out['views_hist']}")
+    if count_v0 is not None:
+        out.update(seen_v0=round(float((count_v0 > 0).mean()), 4), views_per_seen_v0=round(float(count_v0[count_v0 > 0].mean()), 2))
+    print(f"  seen by >= 1 view ({args.occlusion}): {out['seen']:.3f} of vertices, {out['seen_labelled']:.3f} of labelled "
+          f"(v0: {out.get('seen_v0')}); views per seen vertex {out['views_per_seen']} (v0: {out.get('views_per_seen_v0')}); "
+          f"histogram {out['views_hist']}")
+    c = out["consistency"]
+    if c:
+        print(f"  view consistency (centred cosine, one view vs the others' mean; {c['n']:,} samples): {c['cos']} "
+              f"(other point: {c['baseline']}); by angle from axis {c['axis_deg']}; by incidence {c['incidence_deg']}; "
+              f"by depth {c['depth_m']}  [bin: (cos, share)]")
     print(f"  seconds {out['seconds']}")
 
     # visual checks, from the middle view
     mid = len(views) // 2
     view = views[mid]
     photo = decode_image(s["views"][mid]["jpg"])
-    u, v, z = (x.cpu().numpy() for x in project(points, view.w2c, view.K))
-    vis = visible(*project(points, view.w2c, view.K), view).cpu().numpy()
+    pu, pv, pz, cand = candidates(points, view)
+    vis = visible(pu, pv, pz, view, normals)
+    u, v, z, vis, cand = (x.cpu().numpy() for x in (pu, pv, pz, vis, cand))
     small = np.asarray(Image.fromarray(photo).resize((int(s["hw"][1] * PANEL), int(s["hw"][0] * PANEL))))
     zv = z[vis]
     depth_col = jet((zv - np.percentile(zv, 5)) / max(np.percentile(zv, 95) - np.percentile(zv, 5), 1e-6))
-    rgb_seen = np.where(seen[:, None], rgb_np, GREY)
+    rgb_seen = np.where(seen[:, None], rgb_np, NEVER)
     patch_pca = to_rgb(feats[mid].permute(1, 2, 0).reshape(-1, feats.shape[1]).float()).cpu().numpy().reshape(ph, pw, 3)
     counts_col = jet(count_np / max(10, np.percentile(count_np[seen], 95) if seen.any() else 1))
-    counts_col[~seen] = 0
+    counts_col[~seen] = NEVER
+
+    def vis_panel(flags, text):  # candidates only, nearest per pixel: green visible, red hidden
+        col = np.where(flags[:, None], VIS_COL[0], VIS_COL[1])
+        return labelled(render(u[cand], v[cand], z[cand], col, s["hw"]), text)
+
+    v0 = View(view.name, view.w2c, view.K, view.hw, view.valid, occ=OCCLUSION["v0"])
+    v0.zbuf = zbuffer(points, v0)
+    vis_v0 = visible(pu, pv, pz, v0, normals).cpu().numpy()
     panels = [
         labelled(small, f"{scene} {view.name}: photo"),
         labelled(render(u[vis], v[vis], z[vis], depth_col, s["hw"], background=(small * 0.35).astype(np.uint8)),
                  "visible points by depth, on the photo"),
         labelled(render(u, v, z, s["color"], s["hw"]), "vertex colours, rendered from this camera"),
         labelled(np.asarray(Image.fromarray(patch_pca).resize(small.shape[1::-1], Image.NEAREST)), "DINO patch PCA of the photo"),
-        labelled(render(u, v, z, rgb_seen, s["hw"]), "lifted DINO (all views), same PCA; grey = never seen"),
-        labelled(render(u, v, z, counts_col, s["hw"]), "views per vertex (blue few, red many; black none)"),
+        labelled(render(u, v, z, rgb_seen, s["hw"]), "lifted DINO (all views), same PCA; white = never seen"),
+        labelled(render(u, v, z, counts_col, s["hw"]), "views per vertex (blue few, red many; white none)"),
+        vis_panel(vis_v0[cand], "visibility v0 (first run): green visible, red hidden"),
+        vis_panel(vis[cand], f"visibility {args.occlusion} (used here)"),
     ]
+    if rc is not None:
+        truth = truth_visible(rc, w2c_of(s, mid, best), s["coord"][cand])
+        panels.append(vis_panel(truth, "visibility from the mesh (rays)"))
     files = [args.out / f"overlay_{scene}.png", args.out / f"topdown_{scene}.png"]
     grid(panels, 3).save(files[0])
     grid([labelled(topdown(s["coord"], s["color"]), f"{scene}: vertex colours, from above"),
-          labelled(topdown(s["coord"], rgb_seen), "lifted DINO PCA; grey = never seen")], 2).save(files[1])
+          labelled(topdown(s["coord"], rgb_seen), "lifted DINO PCA; white = never seen"),
+          labelled(topdown(s["coord"], counts_col), "views per vertex; white = never seen")], 3).save(files[1])
     out["images"] = [f.name for f in files]
     return out
 
@@ -261,6 +434,9 @@ def main() -> int:
     ap.add_argument("--views", type=int, default=30)
     ap.add_argument("--batch", type=int, default=6, help="images per DINOv2 forward pass")
     ap.add_argument("--chunk", type=int, default=500_000, help="vertices lifted at once")
+    ap.add_argument("--occlusion", choices=sorted(OCCLUSION), default="v1", help="z-buffer variant used for lifting")
+    ap.add_argument("--consistency-points", type=int, default=50_000, help="points sampled for the view-consistency check")
+    ap.add_argument("--tmp", type=Path, default=Path("/tmp/pilot_step2"), help="scratch space for the val mesh")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     if not torch.cuda.is_available():
@@ -313,13 +489,27 @@ def main() -> int:
         print(f"{r['scene']}: {r['n_vertices']:,} vertices, {r['n_views']} views, mask valid {r['mask_valid_frac']:.3f}, "
               f"colour r {r['pose_agreement'][r['convention']]['r_mean']}; seen {r['seen']:.3f} (labelled {r['seen_labelled']:.3f}); "
               f"views/seen vertex {r['views_per_seen']['mean']}; hist {json.dumps(r['views_hist'])}")
+        print(f"   seen with v0 (first run's rule): {r.get('seen_v0')}; views/seen vertex {r.get('views_per_seen_v0')}")
         print(f"   seconds: load {sec['load_s']}, decode {sec['decode_s']}, DINO {sec['dino_s']}, z-buffers {sec['zbuffer_s']}, "
-              f"lift {sec['lift_s']}; peak GPU {r['peak_gpu_gb']} GB")
+              f"lift {sec['lift_s']}, occlusion check {sec['occlusion_check_s']}, diagnostics {sec['diagnostics_s']}; "
+              f"peak GPU {r['peak_gpu_gb']} GB")
+        if "occlusion_check" in r:
+            oc = r["occlusion_check"]
+            print(f"   occlusion vs mesh (precision / recall): "
+                  f"{json.dumps({k: (x['precision'], x['recall']) for k, x in oc['variants'].items()})}; truly visible "
+                  f"{oc['truth_visible_frac']}; back-facing among visible {oc['backfacing_of_visible']}; mesh {json.dumps(r['mesh'])}")
+        else:
+            print(f"   occlusion vs mesh: {r['mesh']}")
+        c = r["consistency"]
+        if c:
+            print(f"   view consistency {c['cos']} (other point {c['baseline']}); axis {json.dumps(c['axis_deg'])}; "
+                  f"incidence {json.dumps(c['incidence_deg'])}; depth {json.dumps(c['depth_m'])}")
     per_view = np.mean([r["seconds"]["dino_s"] / r["n_views"] for r in rows])
     per_mvv = np.mean([r["seconds"]["lift_s"] / (r["n_vertices"] / 1e6 * r["n_views"]) for r in rows])
     per_zb = np.mean([r["seconds"]["zbuffer_s"] / (r["n_vertices"] / 1e6 * r["n_views"]) for r in rows])
     print(f"rates: DINO {per_view:.3f} s/view; lifting {per_mvv:.3f} s per million vertex-views; z-buffer {per_zb:.3f} s per million vertex-views")
     print(f"machine: {json.dumps(box)}")
+    print(f"occlusion variants: {json.dumps({k: str(o) for k, o in OCCLUSION.items()})}; used: {args.occlusion}")
     print(f"images (Output tab, {args.out}): {[f for r in rows for f in r['images']]}")
     return 0
 

@@ -150,3 +150,49 @@ def test_pca3_finds_the_main_directions():
     mean, basis = lifting.pca3(torch.tensor(x, dtype=torch.float32))
     assert basis.shape == (6, 3)
     np.testing.assert_allclose(np.abs(basis.numpy()[:3]), np.eye(3), atol=0.05)
+
+
+def grazing_floor():
+    """A floor (z = 0, 1 cm spacing) seen from a camera 1.5 m above it, looking horizontally along +y: every point in
+    the image (4-9 m away) is visible, at incidence angles of 70-80 degrees."""
+    g = np.arange(-4, 4, 0.01)
+    y = np.arange(0.5, 9, 0.01)
+    xy = np.stack(np.meshgrid(g, y, indexing="ij"), -1).reshape(-1, 2)
+    points = torch.tensor(np.c_[xy, np.zeros(len(xy))], dtype=torch.float32)
+    normals = torch.tensor([[0.0, 0.0, 1.0]]).expand(len(points), 3)
+    w2c = torch.eye(4)
+    w2c[:3, :3] = torch.tensor([[1.0, 0, 0], [0, 0, -1], [0, 1, 0]])  # camera x = world x, y = -world z, z = world y
+    w2c[:3, 3] = torch.tensor([0.0, 1.5, 0.0])  # camera centre at (0, 0, 1.5)
+    K = torch.tensor([[400.0, 0, 200], [0, 400, 150], [0, 0, 1]])
+    return points, normals, lifting.View("v", w2c, K, (300, 400), torch.ones(300, 400, dtype=torch.bool))
+
+
+def visible_fraction(points, normals, view, occ):
+    view.occ = occ
+    view.zbuf = lifting.zbuffer(points, view)
+    u, v, z = lifting.project(points, view.w2c, view.K)
+    inside = lifting.in_image(u, v, z, view.hw)
+    return float(lifting.visible(u, v, z, view, normals)[inside].float().mean())
+
+
+def test_slope_term_keeps_a_grazing_floor_visible():
+    points, normals, view = grazing_floor()
+    strict = visible_fraction(points, normals, view, lifting.OCCLUSION["v0"])
+    sloped = visible_fraction(points, normals, view, lifting.OCCLUSION["v1"])
+    assert strict < 0.9 < 0.99 < sloped, (strict, sloped)  # without the slope term the floor hides itself
+    assert visible_fraction(points, None, view, lifting.OCCLUSION["v1"]) == strict  # no normals: plain tolerance
+    assert visible_fraction(points, -normals, view, lifting.OCCLUSION["v3"]) == 0  # all back-facing
+
+
+def test_slope_term_still_hides_points_behind_a_plate():
+    points, n_wall = scene_with_occluder()
+    normals = torch.tensor([[0.0, 0.0, -1.0]]).expand(len(points), 3)  # wall and plate face the camera
+    view = make_view()
+    for occ in ("v1", "v2", "v3"):
+        view.occ = lifting.OCCLUSION[occ]
+        view.zbuf = lifting.zbuffer(points, view)
+        u, v, z = lifting.project(points, view.w2c, view.K)
+        vis = lifting.visible(u, v, z, view, normals)
+        x, y = points[:n_wall, 0], points[:n_wall, 1]
+        assert vis[:n_wall][(x.abs() < 0.9) & (y.abs() < 0.9)].sum() == 0, occ
+        assert vis[n_wall:].float().mean() > 0.99, occ

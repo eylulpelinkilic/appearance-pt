@@ -2,11 +2,11 @@
 
 Each point (a vertex of mesh_aligned_0.05.ply) is projected into the DSLR views of its scene (undistorted PINHOLE
 images; cameras from appearance_pt.scannetpp_cameras). Occlusion uses a z-buffer of the points themselves, since the
-pilot keeps no mesh faces for train scenes: the nearest depth per CELL x CELL pixel cell, closed with a 3 x 3 minimum
+pilot keeps no mesh faces for train scenes: the nearest depth per cell x cell pixel cell, closed with a 3 x 3 minimum
 filter so that gaps between points do not let hidden points through. A point is visible from a view if it is in front
 of the camera, inside the image, on a valid mask pixel (masks mark anonymised and invalid regions) and no farther than
-DEPTH_TOL behind the nearest depth around it. Its feature is the bilinear sample of the view's patch grid at the
-projected pixel, averaged over every view that sees it; points no view sees get zeros and a view count of 0.
+a tolerance behind the nearest depth around it (Occlusion). Its feature is the bilinear sample of the view's patch
+grid at the projected pixel, averaged over every view that sees it; points no view sees get zeros and a view count of 0.
 Choices and their reasons: docs/decisions.md P5.
 """
 
@@ -19,13 +19,36 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-DINO = ("facebook/dinov2-large", "47b73eefe95e8d44ec3623f8890bd894b6ea2d6c")  # ViT-L/14, no registers; checked 2026-10-26
+# ViT-L/14 with 4 registers (no high-norm artifact patches; the family of Concerto's ViT-g/14 teacher); checked 2026-10-26
+DINO = ("facebook/dinov2-with-registers-large", "e4c89a4e05589de9b3e188688a303d0f3c04d0f3")
 DINO_HW = (518, 770)  # short side 518 px; 770 and 784 are both 7 px off 518 * 1752 / 1168 = 777, the smaller is taken
 PATCH = 14
 MEAN, STD = (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)  # ImageNet, as DINOv2 was trained
-CELL = 8  # z-buffer cell in full-resolution pixels
-DEPTH_TOL = (0.02, 0.05)  # visible if depth <= nearest depth + 2 cm + 5 % of depth
+DEPTH_TOL = (0.02, 0.05)  # visible if depth <= nearest depth + 2 cm + 5 % of depth (+ the slope term)
+MIN_COS = float(np.cos(np.radians(80)))  # incidence floor for the slope term: bounds it at ~0.2 z for 16 px, f = 464
 Z_NEAR = 0.05  # metres in front of the camera
+
+
+@dataclass(frozen=True)
+class Occlusion:
+    """The z-buffer test. Without normals, or with slope_px = 0, the tolerance is DEPTH_TOL alone. On a surface seen at
+    a slant, the nearest depth in the 3 x 3 cell neighbourhood can come from the same surface up to two cells away, so
+    with normals the tolerance adds the depth change of the point's own surface across slope_px pixels: to first order
+    |grad z| = z * |(n_x / fx, n_y / fy)| / |n . r| per pixel (camera coordinates, r = K^-1 (u, v, 1); exact for a
+    plane), with |n . r| floored at MIN_COS |r|. `backface` also rejects points whose normal faces away from the camera
+    (valid only if the normals are oriented towards the scanned side)."""
+
+    cell: int = 8
+    slope_px: float = 0.0
+    backface: bool = False
+
+
+OCCLUSION = {
+    "v0": Occlusion(8, 0.0),  # as in the first step-2 run (2026-10-26)
+    "v1": Occlusion(8, 16.0),  # + slope term over two cells
+    "v2": Occlusion(4, 8.0),  # finer cells, same neighbourhood rule
+    "v3": Occlusion(8, 16.0, backface=True),  # v1 + back-face rejection
+}
 
 
 @dataclass
@@ -35,8 +58,9 @@ class View:
     K: torch.Tensor  # (3, 3)
     hw: tuple[int, int]  # full-resolution image size
     valid: torch.Tensor  # (H, W) bool, mask pixel usable
-    zbuf: torch.Tensor | None = None  # (ceil(H / CELL), ceil(W / CELL)) nearest depth, inf where empty
+    zbuf: torch.Tensor | None = None  # (ceil(H / cell), ceil(W / cell)) nearest depth, inf where empty
     feat: torch.Tensor | None = None  # (C, h, w) patch features
+    occ: Occlusion = OCCLUSION["v0"]
 
 
 def load_dino(device: str = "cuda"):
@@ -79,19 +103,38 @@ def in_image(u, v, z, hw) -> torch.Tensor:
 
 def zbuffer(points: torch.Tensor, view: View) -> torch.Tensor:
     """Nearest depth per cell over all points, closed with a 3 x 3 minimum filter."""
+    cell = view.occ.cell
     u, v, z = project(points, view.w2c, view.K)
     ok = in_image(u, v, z, view.hw)
-    hz, wz = -(-view.hw[0] // CELL), -(-view.hw[1] // CELL)
-    idx = (v[ok] / CELL).long() * wz + (u[ok] / CELL).long()
+    hz, wz = -(-view.hw[0] // cell), -(-view.hw[1] // cell)
+    idx = (v[ok] / cell).long() * wz + (u[ok] / cell).long()
     buf = torch.full((hz * wz,), float("inf"), device=points.device).scatter_reduce_(0, idx, z[ok], reduce="amin")
     return -F.max_pool2d(-buf.view(1, 1, hz, wz), 3, stride=1, padding=1)[0, 0]
 
 
-def visible(u, v, z, view: View) -> torch.Tensor:
+def facing(u, v, normals, view: View) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Normals in camera coordinates n, rays r = K^-1 (u, v, 1), and n . r (> 0: the normal faces away)."""
+    K = view.K
+    n = normals.to(view.w2c.dtype) @ view.w2c[:3, :3].T
+    r = torch.stack([(u - K[0, 2]) / K[0, 0], (v - K[1, 2]) / K[1, 1], torch.ones_like(u)], dim=-1)
+    return n, r, (n * r).sum(-1)
+
+
+def visible(u, v, z, view: View, normals: torch.Tensor | None = None) -> torch.Tensor:
+    occ = view.occ
     ok = in_image(u, v, z, view.hw)
     ui, vi = u.long().clamp(0, view.hw[1] - 1), v.long().clamp(0, view.hw[0] - 1)
     ok &= view.valid[vi, ui]
-    return ok & (z <= view.zbuf[vi // CELL, ui // CELL] + DEPTH_TOL[0] + DEPTH_TOL[1] * z)
+    tol = DEPTH_TOL[0] + DEPTH_TOL[1] * z
+    if normals is not None and (occ.slope_px > 0 or occ.backface):
+        n, r, nr = facing(u, v, normals, view)
+        if occ.slope_px > 0:
+            floor = MIN_COS * r.norm(dim=-1) * n.norm(dim=-1)
+            grad = z * torch.hypot(n[:, 0] / view.K[0, 0], n[:, 1] / view.K[1, 1]) / torch.maximum(nr.abs(), floor).clamp(min=1e-9)
+            tol = tol + occ.slope_px * grad
+        if occ.backface:
+            ok &= nr <= 0
+    return ok & (z <= view.zbuf[vi // occ.cell, ui // occ.cell] + tol)
 
 
 def sample(feat: torch.Tensor, u, v, hw) -> torch.Tensor:
@@ -101,18 +144,20 @@ def sample(feat: torch.Tensor, u, v, hw) -> torch.Tensor:
     return out[0, :, 0].T
 
 
-def lift(points: torch.Tensor, views: list[View], chunk: int = 500_000, max_sample: int = 200_000):
+def lift(points: torch.Tensor, views: list[View], normals: torch.Tensor | None = None, chunk: int = 500_000,
+         max_sample: int = 200_000):
     """Yields (start, mean feature (n, C) float32, view count (n,) int32) for consecutive chunks of `points`.
 
     Every view needs `feat` and a `zbuf` built from all points of the scene (not only these)."""
     channels = views[0].feat.shape[0]
     for start in range(0, len(points), chunk):
         p = points[start:start + chunk]
+        nrm = None if normals is None else normals[start:start + chunk]
         acc = torch.zeros(len(p), channels, device=p.device)
         count = torch.zeros(len(p), dtype=torch.int32, device=p.device)
         for view in views:
             u, v, z = project(p, view.w2c, view.K)
-            idx = visible(u, v, z, view).nonzero().squeeze(1)
+            idx = visible(u, v, z, view, nrm).nonzero().squeeze(1)
             for s in range(0, len(idx), max_sample):
                 j = idx[s:s + max_sample]
                 acc.index_add_(0, j, sample(view.feat, u[j], v[j], view.hw))
@@ -120,11 +165,11 @@ def lift(points: torch.Tensor, views: list[View], chunk: int = 500_000, max_samp
         yield start, acc / count.clamp(min=1).unsqueeze(1), count
 
 
-def colour_agreement(points, colors, keep, view: View, image: torch.Tensor) -> dict:
+def colour_agreement(points, colors, keep, view: View, image: torch.Tensor, normals=None) -> dict:
     """Pearson r between vertex luminance and image luminance at the projected pixel, over the visible points:
     high for the right pose convention, near zero for a wrong one."""
     u, v, z = project(points, view.w2c, view.K)
-    vis = visible(u, v, z, view) & keep
+    vis = visible(u, v, z, view, normals) & keep
     n = int(vis.sum())
     if n < 100:
         return dict(n_visible=n, r=None)

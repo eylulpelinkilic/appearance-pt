@@ -304,15 +304,16 @@ def build() -> dict[str, dict]:
             header(
                 "Pilot · Step 1b (Concerto) and Step 2 (DINO lifted to points)",
                 "**Step 1b:** loads Concerto (`concerto_large_origin`, the original model; and the pre-release "
-                "`concerto_large` for comparison) without FlashAttention, checks that it holds the backbone of Pointcept's "
-                "`pretrain-concerto-v1m1-2-large-video.pth` (an 8.3 GB download, deleted afterwards), scores the released "
-                "ScanNet-20 probe on Pointcept's public demo room, compares SDPA with the original attention, fp16 with "
-                "fp32, seeds and zeroed inputs, and measures time and memory against scene size. **Step 2:** on 3 val "
-                "scenes, projects every vertex into 30 DSLR views, checks the pose convention against the photos, lifts "
-                "DINOv2 ViT-L/14 patch features onto the vertices and saves the visual checks (shown at the end). "
-                "No `SCANNETPP_TOKEN` needed.",
+                "`concerto_large`) without FlashAttention; compares the original with Pointcept's training checkpoint "
+                "`pretrain-concerto-v1m1-2-large-video.pth` (8.3 GB, read so that none of its code runs, then deleted); "
+                "scores the released ScanNet-20 probe on Pointcept's public demo room; trains a half-room linear probe "
+                "for every encoder (a health check that needs no released head); compares SDPA with the original "
+                "attention, fp16 with fp32, seeds and zeroed inputs. **Step 2:** on 3 val scenes, projects every vertex "
+                "into 30 DSLR views, checks the pose convention against the photos, scores the occlusion test against "
+                "the mesh, lifts DINOv2 ViT-L/14 (with registers) patch features onto the vertices, measures how "
+                "consistent the views are, and saves the visual checks (shown at the end). No `SCANNETPP_TOKEN` needed.",
                 ["gpu", "internet", "github", "pin", "wheels", "coreval"],
-                "Save Version → Save & Run All (Commit) (expected about 30–45 min).",
+                "Save Version → Save & Run All (Commit) (expected about 10–15 min).",
                 "both SUMMARY blocks (step 1b and step 2; full logs: /kaggle/working/logs/pilot_02_*.log), and look at "
                 "the images at the end of the notebook (files: /kaggle/working/pilot_concat/step2/*.png).",
             ),
@@ -320,8 +321,9 @@ def build() -> dict[str, dict]:
             code(CLONE),
             code(PILOT_PATH),
             run_step("scripts/setup/install_env.py", "", "pilot_02_install.log"),
-            run_step("experiments/pilot_concat/step1b_concerto.py", "", "pilot_02_step1b.log", env="PILOT_PYTHONPATH",
-                     keep_going=True),
+            # --tiles with no values: time and memory per scene were measured in the first run (decisions.md P4)
+            run_step("experiments/pilot_concat/step1b_concerto.py", ', "--tiles"', "pilot_02_step1b.log",
+                     env="PILOT_PYTHONPATH", keep_going=True),
             run_step("experiments/pilot_concat/step2_lift.py", "", "pilot_02_step2.log", env="PILOT_PYTHONPATH"),
             code(SHOW_IMAGES.format(folder="/kaggle/working/pilot_concat/step2")),
         ]),

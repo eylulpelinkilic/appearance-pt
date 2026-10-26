@@ -36,6 +36,17 @@ def room(spacing=0.02):
     return coord, color
 
 
+def room_normals(coord):
+    """Normals pointing into the room: up on the floor, inwards on the walls."""
+    n = np.zeros_like(coord)
+    n[coord[:, 2] < 1e-6, 2] = 1
+    walls = coord[:, 2] >= 1e-6
+    for axis in (0, 1):
+        n[walls & (coord[:, axis] < 1e-6), axis] = 1
+        n[walls & (coord[:, axis] > 4 - 1e-6), axis] = -1
+    return n
+
+
 def w2c_looking(yaw, centre=(2.0, 2.0, 1.25)):
     fwd = np.array([np.cos(yaw), np.sin(yaw), 0.0])
     down = np.array([0.0, 0.0, -1.0])
@@ -74,7 +85,7 @@ def write_scene(root, scene):
     pc = d / "pointcept" / "val" / scene
     pc.mkdir(parents=True)
     n = len(coord)
-    for key, arr in dict(coord=coord, color=color, normal=np.zeros((n, 3), np.float32),
+    for key, arr in dict(coord=coord, color=color, normal=room_normals(coord),
                          segment=np.full((n, 3), -1, np.int16), instance=np.full((n, 3), -1, np.int16)).items():
         np.save(pc / f"{key}.npy", arr)
     np.save(pc / "segment.npy", np.c_[np.where(coord[:, 2] < 0.01, 1, 0), -np.ones((n, 2))].astype(np.int16))
@@ -109,17 +120,22 @@ class FakeDino(torch.nn.Module):
 def test_run_scene_on_a_synthetic_room(tmp_path):
     scene = json.loads((ROOT / "configs" / "scannetpp_subset.json").read_text())["val"][0]
     path = write_scene(tmp_path / "input" / "scannetpp_core", scene)
-    args = types.SimpleNamespace(views=30, batch=4, chunk=40_000, out=tmp_path / "out")
+    args = types.SimpleNamespace(views=30, batch=4, chunk=40_000, out=tmp_path / "out", occlusion="v1",
+                                 consistency_points=5_000, tmp=tmp_path / "tmp")
     args.out.mkdir()
     out = step2.run_scene(FakeDino(), path, scene, args, "cpu", list(step2.CONVENTIONS))
     # views facing a wall also see the side walls at grazing angles, where several points of one wall fall within the
     # depth tolerance of a pixel; diagonal views reach r = 0.999. Wrong conventions barely see the room at all.
     scores = {c: a["r_mean"] for c, a in out["pose_agreement"].items()}
+    # the wrong cameras see few points; with the room's smooth colours their r can reach ~0.5 by chance
     assert out["convention"] == step2.EXPECTED and scores[step2.EXPECTED] > 0.7, scores
-    assert all(r is None or r < scores[step2.EXPECTED] - 0.3 for c, r in scores.items() if c != step2.EXPECTED), scores
+    assert all(r is None or r < scores[step2.EXPECTED] - 0.2 for c, r in scores.items() if c != step2.EXPECTED), scores
     seen = {c: a["visible_frac"] for c, a in out["pose_agreement"].items()}
     assert all(f < seen[step2.EXPECTED] / 10 for c, f in seen.items() if c != step2.EXPECTED), seen
     assert out["n_views"] == 8 and out["seen"] > 0.5 and out["views_per_seen"]["mean"] >= 1
+    assert out["seen"] > out["seen_v0"] + 0.05  # the slope term stops walls seen at a slant from hiding themselves
+    assert out["consistency"]["n"] > 0 and set(out["consistency"]) >= {"cos", "baseline", "axis_deg", "incidence_deg"}
+    assert out["mesh"].startswith("skipped")  # no open3d locally; Kaggle runs the mesh check
     for name in out["images"]:
         with Image.open(args.out / name) as im:
             assert im.size[0] > 100 and im.size[1] > 100

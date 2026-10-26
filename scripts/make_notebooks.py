@@ -46,6 +46,12 @@ PILOT_PYTHONPATH = {"PYTHONPATH": ":".join(f"{CODE_DIR}/{p}" for p in ("src", "t
                                                                       "third_party/concerto"))}
 '''
 
+PILOT_CHOICES = '''\
+# choices from the step-2 review (decisions.md P5-P7); change here if the latest pilot_02 run says otherwise
+OCCLUSION = "v1"  # z-buffer variant (lifting.OCCLUSION)
+CONCERTO = "concerto"  # Concerto weights for config K: "concerto" (concerto_large_origin) or "concerto_prerelease"
+'''
+
 SHOW_IMAGES = '''\
 # the step-2 visual checks (ScanNet++-derived: they stay in this private notebook)
 from IPython.display import Image as ShowImage, display
@@ -62,6 +68,7 @@ SETTINGS = {
     "alldata": "**Input:** all eight private ScanNet++ datasets: `scannetpp-core-val`, `scannetpp-core-train-a`, "
                "`scannetpp-core-train-b`, `scannetpp-iphone-val` and `scannetpp-iphone-train-1` … `-train-4`",
     "coreval": "**Input:** private dataset `scannetpp-core-val`",
+    "coreall": "**Inputs:** private datasets `scannetpp-core-val`, `scannetpp-core-train-a` and `scannetpp-core-train-b`",
     "internet": "**Internet:** on",
     "github": "**Secrets** (Add-ons → Secrets): `GITHUB_TOKEN` attached",
     "both_secrets": "**Secrets** (Add-ons → Secrets): `GITHUB_TOKEN` and `SCANNETPP_TOKEN` attached",
@@ -326,6 +333,31 @@ def build() -> dict[str, dict]:
                      env="PILOT_PYTHONPATH", keep_going=True),
             run_step("experiments/pilot_concat/step2_lift.py", "", "pilot_02_step2.log", env="PILOT_PYTHONPATH"),
             code(SHOW_IMAGES.format(folder="/kaggle/working/pilot_concat/step2")),
+        ]),
+        "experiments/pilot_concat/notebooks/pilot_03_probes.ipynb": notebook([
+            header(
+                "Pilot · Steps 3–5 (training features, linear probes, evaluation on val)",
+                "**Step 3:** for the 200 train scenes, features of up to 10k labelled vertices each from Utonia, "
+                "Sonata, Concerto, an untrained PTv3, lifted DINOv2 and the raw inputs, written to the session's temp "
+                "disk (~27 GB; nothing data-derived is kept). **Step 4:** a linear probe per configuration (A, B, C, "
+                "C-eq, S, S+, K, K+, K+-eq, R, R+, X): learning rate chosen on 20 held-out train scenes, then 3 seeds on "
+                "all 200. **Step 5:** every probe on all 50 val scenes with the official ScanNet++ metric (top-1/top-3 "
+                "mIoU, per class, seen vs never-seen vertices, bootstrap over scenes), cross-checked against the "
+                "toolbox's own eval_semantic. Run the latest `pilot_02` first and set the two choices below from it. "
+                "No `SCANNETPP_TOKEN` needed.",
+                ["gpu", "internet", "github", "pin", "wheels", "coreall"],
+                "Save Version → Save & Run All (Commit) (expected about 2.5–3 h; approved by the user on 2026-10-26).",
+                "the three SUMMARY blocks (step 3, 4, 5; full logs: /kaggle/working/logs/pilot_03_*.log).",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            code(PILOT_PATH),
+            code(PILOT_CHOICES),
+            run_step("scripts/setup/install_env.py", "", "pilot_03_install.log"),
+            run_step("experiments/pilot_concat/step3_features.py", ', "--occlusion", OCCLUSION, "--concerto", CONCERTO',
+                     "pilot_03_step3.log", env="PILOT_PYTHONPATH"),
+            run_step("experiments/pilot_concat/step4_probes.py", "", "pilot_03_step4.log", env="PILOT_PYTHONPATH"),
+            run_step("experiments/pilot_concat/step5_eval.py", "", "pilot_03_step5.log", env="PILOT_PYTHONPATH"),
         ]),
     }
 

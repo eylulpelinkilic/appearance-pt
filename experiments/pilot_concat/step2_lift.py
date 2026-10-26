@@ -41,10 +41,11 @@ from PIL import Image, ImageDraw
 from appearance_pt import REPO_ROOT
 from appearance_pt.envinfo import collect
 from appearance_pt.runlog import section
-from appearance_pt.scannetpp_cameras import dslr_c2w, dslr_frames, dslr_intrinsics, pick_views
-from appearance_pt.scannetpp_store import SceneArchive, anonymised_vertices, decode_image, find_scenes, manifest_row
+from appearance_pt.scannetpp_cameras import dslr_c2w
+from appearance_pt.scannetpp_store import SceneArchive, decode_image, find_scenes, manifest_row
 from lifting import (DINO, DINO_HW, OCCLUSION, Z_NEAR, View, colour_agreement, dino_patches, facing, in_image, lift, load_dino,
                      pca3, preprocess, project, sample, visible, zbuffer)
+from scenes import load_core_scene
 
 CONVENTIONS = {
     "toolbox inverse (expected)": dslr_c2w,
@@ -70,29 +71,6 @@ def machine() -> dict:
     meminfo = dict(line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines()) if Path("/proc/meminfo").exists() else {}
     ram = {k: round(int(meminfo[k].split()[0]) / 2**20, 1) for k in ("MemTotal", "MemAvailable") if k in meminfo}
     return dict(disk_free_gb=disk, ram_gb=ram, cpus=os.cpu_count())
-
-
-def mask_valid(m: np.ndarray) -> np.ndarray:
-    m = m[..., 0] if m.ndim == 3 else m
-    return m > 0 if m.dtype == bool else m > 127
-
-
-def load_scene(path: Path, scene: str, n_views: int) -> dict:
-    with SceneArchive(path) as arc:
-        pc = f"pointcept/val/{scene}/"
-        s = {k: arc.npy(f"{pc}{k}.npy") for k in ("coord", "color", "normal", "segment")}
-        s["anonymised"] = np.unique(anonymised_vertices(arc))
-        transforms = arc.json("dslr/nerfstudio/transforms_undistorted.json")
-        frames = dslr_frames(transforms)
-        s["K"], s["hw"] = dslr_intrinsics(transforms)
-        s["views"] = []
-        for name in pick_views(arc.json("dslr/kept_views.json")["views"], n_views):
-            mask = frames[name].get("mask_path")
-            valid = (mask_valid(decode_image(arc.read(f"dslr/resized_undistorted_masks/{Path(mask).name}"))) if mask
-                     else np.ones(s["hw"], bool))
-            s["views"].append(dict(name=name, T=frames[name]["transform_matrix"], valid=valid,
-                                   jpg=arc.read(f"dslr/resized_undistorted_images/{name}")))
-    return s
 
 
 def w2c_of(s, i, convention) -> np.ndarray:
@@ -284,7 +262,7 @@ def run_scene(model, path, scene, args, dev, conventions: list[str]) -> dict:
     t = {}
     occ = OCCLUSION[args.occlusion]
     t0 = time.perf_counter()
-    s = load_scene(path, scene, args.views)
+    s = load_core_scene(path, scene, args.views)
     t["load_s"] = time.perf_counter() - t0
     n = len(s["coord"])
     points = torch.from_numpy(s["coord"]).to(dev)

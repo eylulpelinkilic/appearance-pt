@@ -35,6 +35,7 @@ import utonia
 from huggingface_hub import hf_hub_download
 
 from scenes import KEYS
+from stages import Stages, TiledStages, encode_tiled
 
 # Hugging Face repo and commit of the weights (the packages' load() would take "main"), checked 2026-10-24
 WEIGHTS = {
@@ -191,3 +192,32 @@ def encode(model, transform, scene: dict, seed: int, amp: bool = True) -> tuple[
     stats = dict(n_input=len(scene["coord"]), n_grid=int(point.feat.shape[0]),
                  sec_transform=t1 - t0, sec_gpu=time.perf_counter() - t1)
     return point.feat, point.inverse, stats
+
+
+@torch.inference_mode()
+def encode_stages(model, transform, scene: dict, seed: int, amp: bool = True) -> Stages:
+    """Per-stage features of one forward pass (no upcast); Stages.gather gives encode()'s values at chosen points."""
+    seed_everything(seed)
+    point = transform({key: scene[key].copy() for key in KEYS})
+    point = {k: v.cuda(non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in point.items()}
+    with torch.autocast("cuda", dtype=torch.float16, enabled=amp):
+        point = model(point)
+    return Stages.from_point(point, torch.float16 if amp else torch.float32)
+
+
+def encode_scene(model, transform, scene: dict, seed: int, store: str = "cuda", margin: float = 1.0) -> tuple[TiledStages, int]:
+    """encode_stages for a whole scene (fp16, the attention backend in force), split into spatial tiles with `margin`
+    metres of context if a single pass runs out of memory. Stage features are kept on `store` ("cpu" to free the GPU).
+    Returns the tiles and their number (1 = one pass)."""
+    def run(inputs):
+        sub = {key: scene[key][inputs] for key in KEYS}
+        return encode_stages(model, transform, sub, seed).to(store)
+
+    return encode_tiled(run, scene["coord"], margin=margin)
+
+
+def scene_seed(scene_id: str) -> int:
+    """The seed of a scene's one encoder pass (voxel representatives and order shuffle; decisions.md P3)."""
+    import zlib
+
+    return zlib.crc32(scene_id.encode()) % 2**31

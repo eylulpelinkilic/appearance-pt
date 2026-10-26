@@ -168,7 +168,38 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
   - seed sensitivity is now measured for the pre-release Concerto too;
   - the size benchmark is skipped (`--tiles` with no values; measured in the first run).
 
-### S1. Storage for the step-3 training features, now with Concerto (estimate; decision pending)
+### P7. Steps 3–5: design (code and CPU tests 2026-10-26; one Kaggle notebook, `pilot_03_probes`)
+- **One session, approved by the user (> 2 h):** step 3 → step 4 → step 5. The first cell sets the two choices that pilot_02 settles: the occlusion variant (default `v1`) and the Concerto weights (default `concerto_large_origin`).
+- **Encoder features without the full upcast** (`stages.py`):
+  - each stage's features are kept as they are, and the concatenation `[f_0, f_1[inv_1], …]` is built only at the vertices needed. A test checks it equals `encoders.encode`'s loop;
+  - this avoids materialising N × 1728 values, which ran Concerto out of memory at 1.65M grid points (P4);
+  - if a pass still runs out of memory, the scene is split at the median of its longer horizontal axis into tiles with 1 m of context, up to 8 tiles. Each vertex takes its features from the tile whose core holds it. Summaries list the scenes that needed tiles.
+- **One pass per scene and encoder,** seed = CRC32 of the scene id (P3). Colours are used as Pointcept stores them, with magenta in anonymised regions, as in the encoders' pretraining and Pointcept's probing configs. Attention: SDPA; precision fp16.
+- **Step 3, training features:**
+  - per train scene, up to 10,000 vertices drawn uniformly from the labelled, non-anonymised ones; label = Pointcept `segment[:, 0]` (the major label);
+  - blocks: Utonia 1386, Sonata 1232, Concerto 1728, untrained PTv3 1386 and lifted DINO 1024 (fp16, zeros where unseen; the same 30 views and occlusion variant as step 2); plus raw inputs, 9 channels in fp32 (x, y centred, z above the scene's 1st-percentile height, colour / 255, normal);
+  - also stored: the number of views that see each vertex;
+  - memory-mapped arrays on `/tmp` (≈ 27 GB; S1 option (a)). Scenes load in 3 background threads.
+- **Step 4, probes** (configs A, B, C, C-eq, S, S+, K, K+, K+-eq, R, R+, X; `-eq` = each block PCA-reduced to 512 dims, so the concatenated blocks have equal width; added for K+ as well, since K+ is the key comparison):
+  - features standardised per block; linear head; cross-entropy; AdamW (weight decay 1e-4); cosine decay; batch 4096;
+  - learning rate per config from {3e-4, 1e-3, 3e-3, 1e-2}, chosen by point mIoU on 20 held-out train scenes (10 epochs, seed 0). Final probes: 15 epochs, seeds 0–2, all 200 scenes;
+  - training runs in phases, one encoder block plus DINO at a time (≤ 11 GB), held on the GPU when it fits. Otherwise every epoch would re-read the whole 27 GB store;
+  - each probe is folded into weights on the raw blocks (standardisation and PCA absorbed) and saved to `probes.pt`;
+  - **the seeds change only the head's initialisation and batch order; the features are fixed.** So the seed spread understates the uncertainty, and the paired bootstrap over val scenes is the main measure for differences.
+- **Step 5, evaluation on the 50 val scenes:**
+  - **official GT built with the toolbox's own code in-process** (`official.py`: `ScannetPP_Release_Dataset` with prepare_training_data's transforms, multilabel `max_gt` 3, ignore −100).
+  - **Finding:** in multilabel mode the toolbox keeps labels in annotation order, while Pointcept's `parse_scene` moves the smallest instance's label to the first column. The top-k metric uses the first GT label when no prediction matches, so Pointcept's `segment.npy` is not the official GT. Step 5 reports how often the two agree;
+  - metric: `metrics.confusion_topk` on the GPU, equal to the toolbox's `fast_hist_topk_multilabel` (test). As a cross-check, one probe's predictions on 10 scenes are written as the toolbox's text files and re-scored by its `eval_semantic`;
+  - anonymised vertices are excluded, as in `eval_semantic`;
+  - reported: top-1 and top-3 mIoU (seed mean ± std), split into seen vs never-seen vertices, per-class IoU, per-class gains of each "+ DINO" pair, and paired-bootstrap 95 % intervals over scenes for K+ − K, C − B, S+ − S, R+ − R, K − S, K − B, K+ − C and the -eq pairs; sanity check against the paper (S 38.9, K 45.6).
+- **Deviations from Concerto's linear probing (for the write-up):**
+  - point-sampled frozen features instead of training on whole scenes (no augmentation, no Lovász loss, 15 epochs instead of 800);
+  - 200 train scenes instead of all 856;
+  - one encoder pass per scene, no test-time augmentation;
+  - DINO averaged over 30 DSLR views.
+- **CPU tests:** an end-to-end run of steps 3–5 on synthetic rooms, with stub encoder packages, fake encoders, the DINO stand-in and a stand-in for the toolbox GT. It checks the agreement with the toolbox's metric, and that the anonymised vertices are excluded.
+
+### S1. Storage for the step-3 training features, now with Concerto (decided 2026-10-26: option (a))
 200 train scenes × 10,000 labelled points = 2.0M points. Every train scene has at least 41k labelled vertices (min labelled fraction 0.19 × min 217k vertices), so the cap always binds.
 
 | Block | Width | Bytes/point (fp16) | Total |
@@ -186,6 +217,7 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
   - **(b)** Write one output and one private dataset per block, each 4–7 GB. That adds ≈ 27 GB of private storage (≈ 59 GB in total), and probes can be re-run without re-extracting.
   - **(c)** 5,000 points per scene: ≈ 13.6 GB.
 - Val needs no dump: step 5 recomputes features per scene on the fly.
+- **Decision (user, 2026-10-26): option (a)**, and approval to run steps 3–5 as one Kaggle session longer than 2 h. The aim is to finish the pilot within about 24–36 h.
 
 ## 2026-10-25 — M2 / pilot data: token extension, token-safe downloads, sizing first
 

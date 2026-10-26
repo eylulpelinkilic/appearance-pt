@@ -79,18 +79,28 @@ def png(array):
     return buf.getvalue()
 
 
-def write_scene(root, scene):
+def room_labels(coord):
+    """Floor 0, the four walls 1-4, unlabelled above 2.3 m."""
+    label = np.zeros(len(coord), np.int16)
+    walls = coord[:, 2] >= 1e-6
+    for i, (axis, value) in enumerate(((0, 0.0), (0, 4.0), (1, 0.0), (1, 4.0)), 1):
+        label[walls & (np.abs(coord[:, axis] - value) < 1e-6)] = i
+    label[coord[:, 2] > 2.3] = -1
+    return label
+
+
+def write_scene(root, scene, split="val", anonymised=()):
     coord, color = room()
     d = root / "scenes" / scene
-    pc = d / "pointcept" / "val" / scene
+    pc = d / "pointcept" / split / scene
     pc.mkdir(parents=True)
     n = len(coord)
     for key, arr in dict(coord=coord, color=color, normal=room_normals(coord),
-                         segment=np.full((n, 3), -1, np.int16), instance=np.full((n, 3), -1, np.int16)).items():
+                         segment=np.c_[room_labels(coord), -np.ones((n, 2))].astype(np.int16),
+                         instance=np.full((n, 3), -1, np.int16)).items():
         np.save(pc / f"{key}.npy", arr)
-    np.save(pc / "segment.npy", np.c_[np.where(coord[:, 2] < 0.01, 1, 0), -np.ones((n, 2))].astype(np.int16))
     (d / "scans").mkdir()
-    (d / "scans" / "mesh_aligned_0.05_mask.txt").write_text("")
+    (d / "scans" / "mesh_aligned_0.05_mask.txt").write_text("\n".join(map(str, anonymised)))
     for sub in ("nerfstudio", "resized_undistorted_images", "resized_undistorted_masks"):
         (d / "dslr" / sub).mkdir(parents=True)
     frames, names = [], []
@@ -104,7 +114,9 @@ def write_scene(root, scene):
     tf = dict(camera_model="PINHOLE", fl_x=F, fl_y=F, cx=HW[1] / 2, cy=HW[0] / 2, w=HW[1], h=HW[0], frames=frames, test_frames=[])
     (d / "dslr" / "nerfstudio" / "transforms_undistorted.json").write_text(json.dumps(tf))
     (d / "dslr" / "kept_views.json").write_text(json.dumps(dict(views=names)))
-    (root / "manifest.json").write_text(json.dumps({scene: dict(n_vertices=n)}))
+    manifest = root / "manifest.json"
+    rows = json.loads(manifest.read_text()) if manifest.exists() else {}
+    manifest.write_text(json.dumps({**rows, scene: dict(n_vertices=n)}))
     return d
 
 

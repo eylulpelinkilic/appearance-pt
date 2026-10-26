@@ -25,8 +25,8 @@ gains of K+ over K and the split into visible and never-seen points.
 
 | Step | What | State |
 |---|---|---|
-| 1 | Encoder setup: loading, inputs, scale, upcast features, T4 time and memory | Utonia, Sonata: done 2026-10-25 (decisions.md P3). Concerto (1b): run 2026-10-26 (P4): width 1728, SDPA + fp16 fine; released probe fits the pre-release weights only. Re-run with an origin-model check ready (P6) |
-| 2 | Lift DINO features to points (≈30 DSLR views, occlusion test, visual check) | run 2026-10-26: pose convention confirmed, 81–95 % of vertices seen; reviewed (P5). Re-run with registers, slope-aware occlusion scored against the mesh, view consistency ready (P6) |
+| 1 | Encoder setup: loading, inputs, scale, upcast features, T4 time and memory | Utonia, Sonata: done 2026-10-25 (decisions.md P3). Concerto (1b): done 2026-10-26 (P4, P6 results): width 1728, SDPA + fp16; K = `concerto_large_origin` (healthy in the half-room probe) |
+| 2 | Lift DINO features to points (≈30 DSLR views, occlusion test, visual check) | done 2026-10-26 (P5, P6 results): pose convention confirmed; DINOv2 with registers; occlusion v2 (precision 0.78–0.91, recall 0.88–0.96 against the mesh) |
 | 3 | Training features: ≤10k labelled points × 200 train scenes, fp16 | code + CPU tests ready (P7); storage option (a), approved; runs in `pilot_03` |
 | 4 | Linear probes, 3 seeds per configuration | code + CPU tests ready (P7); runs in `pilot_03` |
 | 5 | Evaluation on 50 val scenes; write-up in `docs/pilot_concat.md` | evaluation code + CPU tests ready (P7); runs in `pilot_03`; write-up after |

@@ -13,7 +13,7 @@ step 4 reads in the same session. Colours are as Pointcept stores them (anonymis
 encoders' pretraining and Pointcept's probing configs. Summary: <out>/step3_summary.json.
 
 Usage: python experiments/pilot_concat/step3_features.py [--input /kaggle/input] [--features /tmp/pilot_features]
-       [--points 10000] [--views 30] [--occlusion v1] [--concerto concerto] [--limit N]
+       [--points 10000] [--views 30] [--occlusion v2] [--concerto concerto] [--limit N]
 Needs PYTHONPATH=src:third_party/utonia:third_party/sonata:third_party/concerto, a GPU and Internet (weights).
 """
 
@@ -55,7 +55,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("/kaggle/working/pilot_concat/step3"))
     ap.add_argument("--points", type=int, default=10_000, help="labelled vertices per scene")
     ap.add_argument("--views", type=int, default=30)
-    ap.add_argument("--occlusion", choices=sorted(OCCLUSION), default="v1")
+    ap.add_argument("--occlusion", choices=sorted(OCCLUSION), default="v2")
     ap.add_argument("--concerto", choices=[k for k in ENCODERS if k.startswith("concerto")], default="concerto",
                     help="Concerto weights for the concerto block (decisions.md P4)")
     ap.add_argument("--limit", type=int, help="only the first N train scenes (a quick test)")

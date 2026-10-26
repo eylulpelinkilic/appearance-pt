@@ -19,7 +19,7 @@ It also records free disk and RAM for planning step 3. Results: <out>/step2_summ
 ScanNet++-derived, so they stay on Kaggle.
 
 Usage: python experiments/pilot_concat/step2_lift.py [--input /kaggle/input] [--out DIR] [--scenes ID ...] [--views 30]
-       [--occlusion v1]
+       [--occlusion v2]
 Needs PYTHONPATH=src:experiments/pilot_concat (the notebook sets it), a GPU and Internet (Hugging Face weights).
 """
 
@@ -412,7 +412,7 @@ def main() -> int:
     ap.add_argument("--views", type=int, default=30)
     ap.add_argument("--batch", type=int, default=6, help="images per DINOv2 forward pass")
     ap.add_argument("--chunk", type=int, default=500_000, help="vertices lifted at once")
-    ap.add_argument("--occlusion", choices=sorted(OCCLUSION), default="v1", help="z-buffer variant used for lifting")
+    ap.add_argument("--occlusion", choices=sorted(OCCLUSION), default="v2", help="z-buffer variant used for lifting")
     ap.add_argument("--consistency-points", type=int, default=50_000, help="points sampled for the view-consistency check")
     ap.add_argument("--tmp", type=Path, default=Path("/tmp/pilot_step2"), help="scratch space for the val mesh")
     args = ap.parse_args()

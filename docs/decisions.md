@@ -168,8 +168,53 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
   - seed sensitivity is now measured for the pre-release Concerto too;
   - the size benchmark is skipped (`--tiles` with no values; measured in the first run).
 
+### P6 results. Second `pilot_02` run (2026-10-26 11:45–11:49 UTC, commit `8c15f95`)
+**Concerto (step 1b):**
+- `concerto_large_origin` against the training checkpoint `pretrain-concerto-v1m1-2-large-video.pth`: all 453 tensors have the same names and shapes, but max |diff| is 0.97 (student) and 0.995 (teacher). **So it is not that checkpoint's backbone.** The inert loader stubbed only `_codecs.encode`, `numpy.core.multiarray.scalar` and `numpy.dtype` (plain metadata).
+- **Half-room linear probe** on the demo room (ScanNet-20; mIoU, accuracy):
+
+  | Encoder | mIoU | Accuracy |
+  |---|---|---|
+  | Utonia | 0.235 | 0.68 |
+  | Concerto pre-release | 0.212 | 0.68 |
+  | **Concerto origin** | **0.206** | **0.67** |
+  | Sonata | 0.167 | 0.60 |
+  | raw xyz + colour + normal | 0.098 | 0.26 |
+  | untrained PTv3 | 0.085 | 0.42 |
+
+  **The original model is healthy.** Its 0.003 with the released head (P4) only showed that the head belongs to the pre-release weights.
+- **Decision: K uses `concerto_large_origin`.**
+  - Open: which checkpoint the paper's ScanNet++ 45.6 comes from; step 5 compares K with it.
+  - Seed sensitivity: pre-release 0.987, origin 0.988.
+
+**Lifting (step 2):**
+- **Registers:** the isolated single-patch outliers are gone from the photos' DINO PCA (user's screenshots).
+- **Occlusion against mesh visibility** (5 views per scene, up to 300k points each; precision / recall, F1 in brackets):
+
+  | Scene (vertices) | truly visible | v0 | v1 | **v2** | v3 |
+  |---|---|---|---|---|---|
+  | f9f95681fd (272k) | 0.83 | 0.945 / 0.841 (0.890) | 0.902 / 0.924 (0.913) | **0.908 / 0.956 (0.931)** | 0.932 / 0.858 (0.893) |
+  | 1ada7a0617 (1.2M) | 0.59 | 0.914 / 0.900 (0.907) | 0.880 / 0.929 (0.904) | **0.873 / 0.958 (0.913)** | 0.930 / 0.842 (0.884) |
+  | 578511c8a9 (4.8M) | 0.52 | 0.844 / 0.555 (0.668) | 0.775 / 0.810 (0.792) | **0.776 / 0.881 (0.825)** | 0.859 / 0.742 (0.796) |
+
+  **Decision: v2** (4 px cells, slope term over 8 px): the best F1 in every scene.
+- **Remaining error is precision** (0.78–0.91): points the z-buffer calls visible that the mesh hides. The mesh is decimated: flat surfaces (screens, table tops, chair backs) keep few vertices, so the z-buffer has holes there and the dense vertices behind them show through.
+  - The overlays' mesh panel shows this: the undersides of monitors, chairs and tables are hidden (red), as they should be.
+  - Exact visibility needs the mesh faces. Val has them; for train they were not kept (D11). Re-downloading them would be part of the 8.73 GB "mesh + mask + segments + annotations" group (D9), and the token expires on 2026-11-01.
+- **Other step-2 numbers:**
+  - Mesh vertices equal Pointcept's `coord` exactly (max |diff| 0) in all three scenes.
+  - Back-facing normals among truly visible points: 7–9 %, so back-face rejection (v3) costs recall; not used.
+  - Coverage with v1: 0.982 / 0.969 / 0.921 of vertices seen (v0: 0.947 / 0.938 / 0.806); v2 recalls more.
+  - Colour agreement 0.85 / 0.86 / 0.78, slightly below v0's, as expected from the lower precision.
+- **View consistency** (centred cosine, one view against the others' mean): 0.73 / 0.64 / 0.65, against 0.10 / 0.08 / 0.14 for a random other point.
+  - By angle from the optical axis: 0–40° 0.65–0.78; 40–60° 0.57–0.70; **> 60° 0.51–0.55** (5–7 % of samples).
+  - By incidence angle: no trend.
+  - By depth (largest scene): near points are less consistent (0–1 m 0.49, > 4 m 0.68).
+  - **Decision: no view weighting in the pilot**, since the inconsistent periphery is ≤ 7 % of samples. Recorded for the next phase.
+- **Time:** loading 7–11 s per scene this run (20 s in the first); DINO 0.12 s per view; lifting 0.13 s per million vertex-views (with normals).
+
 ### P7. Steps 3–5: design (code and CPU tests 2026-10-26; one Kaggle notebook, `pilot_03_probes`)
-- **One session, approved by the user (> 2 h):** step 3 → step 4 → step 5. The first cell sets the two choices that pilot_02 settles: the occlusion variant (default `v1`) and the Concerto weights (default `concerto_large_origin`).
+- **One session, approved by the user (> 2 h):** step 3 → step 4 → step 5. The first cell sets the two choices settled by pilot_02 (P6 results): occlusion `v2`, Concerto `concerto_large_origin`.
 - **Encoder features without the full upcast** (`stages.py`):
   - each stage's features are kept as they are, and the concatenation `[f_0, f_1[inv_1], …]` is built only at the vertices needed. A test checks it equals `encoders.encode`'s loop;
   - this avoids materialising N × 1728 values, which ran Concerto out of memory at 1.65M grid points (P4);

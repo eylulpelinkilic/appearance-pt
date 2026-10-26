@@ -46,7 +46,7 @@ class Occlusion:
 OCCLUSION = {
     "v0": Occlusion(8, 0.0),  # as in the first step-2 run (2026-10-26)
     "v1": Occlusion(8, 16.0),  # + slope term over two cells
-    "v2": Occlusion(4, 8.0),  # finer cells, same neighbourhood rule
+    "v2": Occlusion(4, 8.0),  # finer cells, same neighbourhood rule; chosen for the pilot (best F1 against the mesh)
     "v3": Occlusion(8, 16.0, backface=True),  # v1 + back-face rejection
 }
 

@@ -47,9 +47,9 @@ PILOT_PYTHONPATH = {"PYTHONPATH": ":".join(f"{CODE_DIR}/{p}" for p in ("src", "t
 '''
 
 PILOT_CHOICES = '''\
-# choices from the step-2 review (decisions.md P5-P7); change here if the latest pilot_02 run says otherwise
-OCCLUSION = "v1"  # z-buffer variant (lifting.OCCLUSION)
-CONCERTO = "concerto"  # Concerto weights for config K: "concerto" (concerto_large_origin) or "concerto_prerelease"
+# choices from the pilot_02 run of 2026-10-26 11:47 UTC (decisions.md P6, results)
+OCCLUSION = "v2"  # z-buffer variant (lifting.OCCLUSION): best F1 against the mesh in all three val scenes
+CONCERTO = "concerto"  # concerto_large_origin: healthy in the half-room probe; "concerto_prerelease" is the alternative
 '''
 
 SHOW_IMAGES = '''\
@@ -343,7 +343,7 @@ def build() -> dict[str, dict]:
                 "C-eq, S, S+, K, K+, K+-eq, R, R+, X): learning rate chosen on 20 held-out train scenes, then 3 seeds on "
                 "all 200. **Step 5:** every probe on all 50 val scenes with the official ScanNet++ metric (top-1/top-3 "
                 "mIoU, per class, seen vs never-seen vertices, bootstrap over scenes), cross-checked against the "
-                "toolbox's own eval_semantic. Run the latest `pilot_02` first and set the two choices below from it. "
+                "toolbox's own eval_semantic. The two choices from pilot_02 are set in the first code cell. "
                 "No `SCANNETPP_TOKEN` needed.",
                 ["gpu", "internet", "github", "pin", "wheels", "coreall"],
                 "Save Version → Save & Run All (Commit) (expected about 2.5–3 h; approved by the user on 2026-10-26).",

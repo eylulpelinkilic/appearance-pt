@@ -9,9 +9,9 @@ Room", 3DV 2026) is related work only.
 - Reference encoders: Sonata (3D-only SSL), Concerto (joint 2D-3D SSL), Utonia. Concerto paper,
   ScanNet++ val: linear probing Sonata 38.9, Concerto 45.6 mIoU; decoder probing Concerto 48.3.
   These models saw ScanNet++ val (and test) scenes, unlabelled, during pretraining.
-- **Now: the pilot** (`experiments/pilot_concat/`): Concerto-style linear probes on frozen features,
-  ending in a write-up. Key question: do lifted DINO features still add information on top of
-  Concerto (K+ vs K), which was itself trained to predict DINOv2 features?
+- **Pilot done (2026-10-26)** (`experiments/pilot_concat/`, write-up `docs/pilot_concat.md`): Concerto-style
+  linear probes on frozen features. Lifted DINO still adds +2.7 [+1.2, +4.0] mIoU on top of Concerto
+  (vs +9.9 on Sonata), mostly on small, appearance-defined objects.
 - **Next phase (planned, do NOT start without the user):** continued pretraining from Sonata weights
   on ScanNet++ under a fixed GPU budget, comparing Concerto's cross-modal objective (control) with
   new objectives (likely higher-resolution cross-modal prediction using ScanNet++'s DSLR images and

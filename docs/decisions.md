@@ -269,6 +269,63 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
   - **Lesson:** the CPU end-to-end test stood in for the toolbox GT, so it never ran the toolbox's GT path.
 - **CPU tests:** an end-to-end run of steps 3–5 on synthetic rooms, with stub encoder packages, fake encoders, the DINO stand-in and a stand-in for the toolbox GT. It checks the agreement with the toolbox's metric, and that the anonymised vertices are excluded.
 
+### P7 results. Step 5 (`pilot_04_eval`, finished 2026-10-26 17:01 UTC, 44.8 min; probes from the first `pilot_03` run)
+- **Run:** 50/50 val scenes, none failed. Probes: 12 configs × 3 seeds, trained on 2.0M points (200 train scenes × 10k). Occlusion v2, 30 DSLR views, Concerto `concerto_large_origin`. LR 3e-4 for every config except X (1e-2).
+- **Evaluation verified:**
+  - the toolbox's `eval_semantic` re-scored probe K#0 on 10 scenes and gave exactly our numbers (top-1 0.368716, top-3 0.60538);
+  - toolbox GT vs Pointcept `segment.npy`: the same label sets on 100 % of vertices and the same order on 99.72 %. 0.47 % of vertices carry more than one label, so the order question (P7) is real but small.
+- **Coverage:** 94.5 % of evaluated vertices are seen by at least one of the 30 views (scene mean).
+- **Results** (top-1 / top-3 mIoU, %, mean ± std over 3 probe seeds; top-1 on seen and never-seen vertices):
+
+  | Config | Top-1 | Top-3 | Seen | Never seen |
+  |---|---|---|---|---|
+  | A DINO | 33.89 ± 0.12 | 62.51 ± 0.13 | 35.54 | 0.34 |
+  | B Utonia | 37.64 ± 0.03 | 64.68 ± 0.13 | 37.73 | 29.80 |
+  | C Utonia ⊕ DINO | 41.47 ± 0.07 | 68.89 ± 0.05 | 42.10 | 28.84 |
+  | C-eq | 40.86 ± 0.03 | 68.08 ± 0.03 | 41.52 | 28.17 |
+  | S Sonata (paper 38.9) | 30.83 ± 0.05 | 54.91 ± 0.04 | 31.16 | 23.20 |
+  | S+ Sonata ⊕ DINO | 40.73 ± 0.02 | 69.07 ± 0.05 | 41.68 | 22.73 |
+  | K Concerto (paper 45.6) | 39.09 ± 0.03 | 66.20 ± 0.04 | 39.18 | 31.78 |
+  | K+ Concerto ⊕ DINO | 41.76 ± 0.05 | 69.20 ± 0.04 | 42.34 | 30.99 |
+  | K+-eq | 41.42 ± 0.05 | 69.50 ± 0.08 | 42.07 | 29.75 |
+  | R untrained PTv3 | 6.97 ± 0.00 | 15.38 ± 0.00 | 6.99 | 6.27 |
+  | R+ | 34.07 ± 0.02 | 60.01 ± 0.04 | 35.72 | 4.97 |
+  | X xyz, colour, normal | 2.63 ± 0.00 | 7.91 ± 0.00 | 2.63 | 3.35 |
+
+- **Differences** (paired bootstrap over val scenes, top-1, 95 % interval):
+
+  | Pair | Diff | Interval |
+  |---|---|---|
+  | K+ − K | +2.67 | [+1.22, +4.04] |
+  | C − B | +3.83 | [+2.35, +5.02] |
+  | S+ − S | +9.90 | [+7.78, +11.07] |
+  | R+ − R | +27.10 | [+24.24, +28.79] |
+  | K − S | +8.26 | [+6.52, +9.62] |
+  | K − B | +1.45 | [+0.33, +2.74] |
+  | K+ − C | +0.29 | [−0.63, +1.72] |
+  | K+-eq − K+ | −0.34 | [−1.05, +0.33] |
+  | C-eq − C | −0.61 | [−1.22, +0.07] |
+
+  The probe-seed std (≤ 0.13) is far below every interval width, so the scene bootstrap is the binding uncertainty, as expected (P7).
+- **Answer to the key question:** lifted DINO still adds to Concerto, +2.67 [+1.22, +4.04]. That is about a quarter of what it adds to Sonata (+9.90). Concerto's training recovers most of that gain on its own (K − S = +8.26). With DINO concatenated, the three trained encoders end close together (S+ 40.7, C 41.5, K+ 41.8; K+ − C not resolved).
+- **Width is not the explanation:** reducing both blocks to 512 dims changes little (K+-eq − K+ −0.34; C-eq − C −0.61, both intervals include 0).
+- **Never-seen vertices (5.5 %):** concatenating DINO lowers the score there for every encoder (K+ 30.99 vs K 31.78; S+ 22.73 vs S 23.20; C 28.84 vs B 29.80). There the DINO block is all zeros, the probe gets no missing-data flag, and such points are a small minority in training too, so its weights fit the seen points. Concerto is +8.6 over Sonata there.
+  - Caveat: "never seen" means not seen by our 30 views. Concerto was pretrained on these val scenes with their images (unlabelled), so this is not a test on points it never had image supervision for.
+  - The mean per-class K+ − K gain on never-seen vertices (−2.93) differs from the mIoU difference (−0.79). It averages only classes with an IoU in both configurations, and on this small subset spurious predictions of absent classes count as IoU 0 in one configuration only.
+- **Per class (K+ − K, point estimates):** gains on small, appearance-defined objects (headphones +34, clock +26, air vent +23, clothes hanger +17, cutting board +16, mouse +16, telephone +15, speaker +15, cup +14, power strip +11). Losses: tissue box −21, blind rail −17, painting −13, shoe rack −13. Many of these classes occur in few val scenes, so per-class intervals come from `step5_classes.py` (paired bootstrap per class, same resamples) before any per-class claim.
+- **Sanity check against the paper:** S 30.8 vs 38.9 and K 39.1 vs 45.6. We are 8.1 and 6.5 points lower, but the K − S gap (+8.3 [+6.5, +9.6]) contains the paper's +6.7. Our probing is much lighter (P7 deviations): sampled points, 15 epochs, no augmentation, 200 train scenes, a single pass with no test-time augmentation. So absolute numbers are not comparable; the comparisons between configs are the result.
+- **Per-class intervals** (`step5_classes.py` on step 5's `results.json` and `confmats.npz`, 2026-10-26; it reproduces step 5's mIoU and per-class IoU exactly). A class counts as changed only if its 95 % interval clears 0 by at least 0.05 IoU points: a class absent from many resamples puts a bound at 0 or a hair from it.
+  - K+ − K: 11 of 99 classes reliably up, none reliably down. Up: mouse +16.1 [+5.5, +30.3], telephone +15.3 [+4.0, +29.2], cup +13.5 [+5.2, +23.5], socket +7.9 [+4.1, +13.1], toilet paper +6.1, exhaust fan +6.1, book +6.1, refrigerator +3.5, bed +3.0, monitor +1.8, table +1.1 [+0.4, +1.7].
+  - The large point estimates in step 5's summary are not resolved: headphones, clock, air vent (2–3 val scenes), and all the losses (tissue box, blind rail, painting, shoe rack: 1–2 scenes each).
+  - By class frequency (thirds by val vertex count; the frequent third is mostly structure, the rare third small objects), K+ − K is frequent +1.3 [+0.7, +2.5], middle +2.7 [+0.8, +4.6], rare +4.1 [+1.0, +7.0]. Concerto's gain over Sonata is largest in the middle third (+13.6) and smallest in the rare third (+4.1).
+  - DINO helps the same classes on top of every encoder: the rank correlation of per-class gains with K+ − K is 0.60 for S+ − S and 0.68 for C − B. It is 0.10 for K − S. Concerto's largest gains over Sonata are on mid-sized objects (computer tower, suitcase, printer, shoes, blanket, microwave), and less on the small ones where DINO still helps.
+  - K+ − S+ on the rare third: −1.4 [−3.1, +2.1]. Once DINO is added, Concerto's advantage over Sonata on rare classes is gone.
+- **Learning rate** (step 4's `step4_summary.json`, pilot_03 at commit `b949425`): held-out point mIoU on 20 train scenes (seed 0, 10 epochs), at LR 3e-4 / 1e-3 / 3e-3 / 1e-2:
+  - K 35.3 / 33.9 / 32.8 / 29.2; K+ 39.5 / 38.0 / 35.4 / 30.8; S 28.4 / 27.6 / 26.8 / 25.4; S+ 38.0 / 37.1 / 34.6 / 31.0; B 35.4 / 34.1 / 33.5 / 31.0; C 38.7 / 38.0 / 36.4 / 32.2. The score falls with LR for every config except X, so the best rate may lie below the grid.
+  - From 1e-3 to 3e-4 the trained encoders gain 0.7–1.6 points. The differences between configs barely move: K+ − K 4.1 → 4.2, S+ − S 9.5 → 9.6, K − S 6.3 → 7.0, C − B 3.9 → 3.3. The final training loss (≈ 0.23–0.27 per encoder phase, still falling) shows that the probes fit the training points closely, so a lower rate acts as regularisation.
+  - **Conclusion:** a lower rate would likely raise all absolute numbers by about a point, but not change the comparisons the pilot is about. No re-run for the pilot. The linear-probe protocol for the next phase should extend the grid down (1e-4, 3e-5) and try stronger weight decay; that is a protocol decision for then.
+- **Write-up:** `docs/pilot_concat.md` (2026-10-26). The pilot is complete.
+
 ### S1. Storage for the step-3 training features, now with Concerto (decided 2026-10-26: option (a))
 200 train scenes × 10,000 labelled points = 2.0M points. Every train scene has at least 41k labelled vertices (min labelled fraction 0.19 × min 217k vertices), so the cap always binds.
 

@@ -27,19 +27,11 @@ import numpy as np
 from appearance_pt import REPO_ROOT
 from appearance_pt.envinfo import collect
 from appearance_pt.runlog import section
-from appearance_pt.scannetpp_store import SceneArchive, check_core, check_iphone, find_scenes
+from appearance_pt.scannetpp_store import SceneArchive, check_core, check_iphone, find_scenes, manifest_row
 
 CHECKS = {"core": check_core, "iphone": check_iphone}
 MANIFEST_KEYS = {"core": ("n_vertices", "n_views"), "iphone": ("n_pool",)}  # must equal the download manifest's row
 GRID_LIMIT = 1.4e6  # single-pass encoder limit on a T4 (docs/decisions.md P3)
-
-
-def manifest_row(archive: Path, cache: dict) -> dict:
-    """The download manifest's row for this archive (manifest.json sits next to the scenes/ directory)."""
-    path = archive.parent.parent / "manifest.json"
-    if path not in cache:
-        cache[path] = json.loads(path.read_text()) if path.exists() else {}
-    return cache[path].get(archive.name.removesuffix(".tar"), {})
 
 
 def check(kind: str, scene: str, split: str, path: Path, expected: dict) -> dict:
@@ -140,7 +132,8 @@ def main() -> int:
         if g and kind == "iphone":
             print(f"  frames {sum(r['n_pool'] for r in g):,} (min {min(r['n_pool'] for r in g)} per scene); rgb sizes (h x w) "
                   f"{dict(Counter(s for r in g for s in r['rgb_hw']))}; COLMAP cameras "
-                  f"{dict(Counter(m for r in g for m in r['camera_models']))}")
+                  f"{dict(Counter(m for r in g for m in r['camera_models']))}; .gz members still compressed in "
+                  f"{sum(r['gz_as_packed'] > 0 for r in g)} scenes (0: Kaggle decompressed them)")
             print(f"  depth encodings {dict(Counter(r['depth_encoding'] for r in g))}; per-scene median depth "
                   f"{spread([r['depth_median_mm'] for r in g])} mm; worst frame's zero-depth fraction "
                   f"{max(r['depth_zero_max'] for r in g):.3f}; mask > 127 fraction "

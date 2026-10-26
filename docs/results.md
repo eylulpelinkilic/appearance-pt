@@ -13,10 +13,20 @@ on `mesh_aligned_0.05.ply` with anonymized vertices excluded (see `configs/proto
 
 ## Aggregates (mean ± std over seeds)
 
-| Model | Protocol | Seeds | Val mIoU top-1 | Val mIoU top-3 |
+Pilot (frozen encoders, one linear probe each; `experiments/pilot_concat/README.md`). The supervised
+PTv3 and DITR rows were removed when the project changed direction (decisions.md D14).
+
+| Config | Features | Seeds | Val mIoU top-1 | Val mIoU top-3 |
 |---|---|---|---|---|
-| A: PTv3 | reduced_v1 | — | — | — |
-| B: DITR (PTv3 + DINOv2-L) | reduced_v1 | — | — | — |
+| A | DINOv2 ViT-L/14, lifted | — | — | — |
+| B | Utonia | — | — | — |
+| C | Utonia ⊕ DINO | — | — | — |
+| S | Sonata (paper: 38.9) | — | — | — |
+| S+ | Sonata ⊕ DINO | — | — | — |
+| K | Concerto (paper: 45.6) | — | — | — |
+| K+ | Concerto ⊕ DINO | — | — | — |
+| R | untrained PTv3 (alone / ⊕ DINO) | — | — | — |
+| X | xyz, colour, normal | — | — | — |
 
 Reference (leaderboard, full protocol, **test** set, not comparable in absolute terms): PTv3 48.8, DITR 52.5 mIoU.
 

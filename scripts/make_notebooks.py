@@ -41,8 +41,17 @@ run_logged([sys.executable, "-m", "pip", "install", "--quiet", {packages}],
 '''
 
 PILOT_PATH = '''\
-# pilot scripts import the Utonia and Sonata inference packages (pinned submodules) and our src/
-PILOT_PYTHONPATH = {"PYTHONPATH": ":".join(f"{CODE_DIR}/{p}" for p in ("src", "third_party/utonia", "third_party/sonata"))}
+# pilot scripts import the Utonia, Sonata and Concerto inference packages (pinned submodules) and our src/
+PILOT_PYTHONPATH = {"PYTHONPATH": ":".join(f"{CODE_DIR}/{p}" for p in ("src", "third_party/utonia", "third_party/sonata",
+                                                                      "third_party/concerto"))}
+'''
+
+SHOW_IMAGES = '''\
+# the step-2 visual checks (ScanNet++-derived: they stay in this private notebook)
+from IPython.display import Image as ShowImage, display
+for png in sorted(pathlib.Path("{folder}").glob("*.png")):
+    print(png.name)
+    display(ShowImage(filename=str(png)))
 '''
 
 SETTINGS = {
@@ -52,6 +61,7 @@ SETTINGS = {
                 "with the token line set back to `<YOUR_TOKEN_HERE>`)",
     "alldata": "**Input:** all eight private ScanNet++ datasets: `scannetpp-core-val`, `scannetpp-core-train-a`, "
                "`scannetpp-core-train-b`, `scannetpp-iphone-val` and `scannetpp-iphone-train-1` … `-train-4`",
+    "coreval": "**Input:** private dataset `scannetpp-core-val`",
     "internet": "**Internet:** on",
     "github": "**Secrets** (Add-ons → Secrets): `GITHUB_TOKEN` attached",
     "both_secrets": "**Secrets** (Add-ons → Secrets): `GITHUB_TOKEN` and `SCANNETPP_TOKEN` attached",
@@ -70,11 +80,12 @@ def code(text: str) -> dict:
             "source": text.strip("\n").splitlines(keepends=True)}
 
 
-def run_step(script: str, args: str, log: str, env: str = "PYTHONPATH") -> dict:
-    return code(f'''\
-run_logged([sys.executable, "-u", "{script}"{args}],
-           "/kaggle/working/logs/{log}", cwd=CODE_DIR, extra_env={env})
-''')
+def run_step(script: str, args: str, log: str, env: str = "PYTHONPATH", keep_going: bool = False) -> dict:
+    call = f'''run_logged([sys.executable, "-u", "{script}"{args}],
+           "/kaggle/working/logs/{log}", cwd=CODE_DIR, extra_env={env})'''
+    if keep_going:  # a failure is reported, and the next step still runs
+        call = "try:\n    " + call.replace("\n", "\n    ") + "\nexcept RuntimeError as e:\n    print(f\"!! {e}; going on with the next step\")"
+    return code(call)
 
 
 def header(title: str, purpose: str, settings: list[str], run: str, paste: str) -> dict:
@@ -288,6 +299,31 @@ def build() -> dict[str, dict]:
             code(PILOT_PATH),
             run_step("scripts/setup/install_env.py", "", "pilot_01_encoders.log"),
             run_step("experiments/pilot_concat/step1_encoders.py", "", "pilot_01_encoders.log", env="PILOT_PYTHONPATH"),
+        ]),
+        "experiments/pilot_concat/notebooks/pilot_02_concerto_lift.ipynb": notebook([
+            header(
+                "Pilot · Step 1b (Concerto) and Step 2 (DINO lifted to points)",
+                "**Step 1b:** loads Concerto (`concerto_large_origin`, the original model; and the pre-release "
+                "`concerto_large` for comparison) without FlashAttention, checks that it holds the backbone of Pointcept's "
+                "`pretrain-concerto-v1m1-2-large-video.pth` (an 8.3 GB download, deleted afterwards), scores the released "
+                "ScanNet-20 probe on Pointcept's public demo room, compares SDPA with the original attention, fp16 with "
+                "fp32, seeds and zeroed inputs, and measures time and memory against scene size. **Step 2:** on 3 val "
+                "scenes, projects every vertex into 30 DSLR views, checks the pose convention against the photos, lifts "
+                "DINOv2 ViT-L/14 patch features onto the vertices and saves the visual checks (shown at the end). "
+                "No `SCANNETPP_TOKEN` needed.",
+                ["gpu", "internet", "github", "pin", "wheels", "coreval"],
+                "Save Version → Save & Run All (Commit) (expected about 30–45 min).",
+                "both SUMMARY blocks (step 1b and step 2; full logs: /kaggle/working/logs/pilot_02_*.log), and look at "
+                "the images at the end of the notebook (files: /kaggle/working/pilot_concat/step2/*.png).",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            code(PILOT_PATH),
+            run_step("scripts/setup/install_env.py", "", "pilot_02_install.log"),
+            run_step("experiments/pilot_concat/step1b_concerto.py", "", "pilot_02_step1b.log", env="PILOT_PYTHONPATH",
+                     keep_going=True),
+            run_step("experiments/pilot_concat/step2_lift.py", "", "pilot_02_step2.log", env="PILOT_PYTHONPATH"),
+            code(SHOW_IMAGES.format(folder="/kaggle/working/pilot_concat/step2")),
         ]),
     }
 

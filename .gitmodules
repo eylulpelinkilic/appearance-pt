@@ -18,3 +18,7 @@
 	path = third_party/utonia
 	url = https://github.com/Pointcept/Utonia.git
 	shallow = true
+[submodule "third_party/concerto"]
+	path = third_party/concerto
+	url = https://github.com/Pointcept/Concerto.git
+	shallow = true

@@ -2,8 +2,9 @@
 
 The download notebooks wrote one uncompressed tar per scene to <output>/scenes/<scene>.tar, next to manifest.json:
 "core" scenes (m2_02; layout of scannetpp_reduce.pack_scene) and "iphone" scenes (m2_04; scannetpp_iphone.reduce_scene).
-Kaggle may unpack archives when it builds a dataset, so a scene may also arrive as a directory (scenes/<scene>/ or
-scenes/<scene>.tar/); SceneArchive reads both the same way.
+Kaggle unpacks archives when it builds a dataset (seen in m2_05, 2026-10-25): a scene arrives as a directory
+scenes/<scene>/, and the .gz files inside the tar most likely as their decompressed contents. SceneArchive reads a tar
+and an unpacked directory the same way, and `unzipped` accepts either form of a .gz member.
 """
 
 from __future__ import annotations
@@ -66,9 +67,14 @@ class SceneArchive:
         self.bytes_read += len(data)
         return data
 
+    def unzipped(self, name: str) -> bytes:
+        """Decompressed contents of the .gz member `name`, or of name minus .gz if Kaggle already decompressed it."""
+        if name not in self._members and name.removesuffix(".gz") in self._members:
+            return self.read(name.removesuffix(".gz"))
+        return gzip.decompress(self.read(name))
+
     def json(self, name: str):
-        data = self.read(name)
-        return json.loads(gzip.decompress(data) if name.endswith(".gz") else data)
+        return json.loads(self.unzipped(name) if name.endswith(".gz") else self.read(name))
 
     def npy(self, name: str) -> np.ndarray:
         return np.load(io.BytesIO(self.read(name)))
@@ -99,6 +105,20 @@ def find_scenes(root: Path) -> dict[str, dict[str, list[Path]]]:
     return found
 
 
+def manifest_row(archive: Path, cache: dict) -> dict:
+    """The download manifest's row for a scene archive (manifest.json sits next to the scenes/ directory)."""
+    path = Path(archive).parent.parent / "manifest.json"
+    if path not in cache:
+        cache[path] = json.loads(path.read_text()) if path.exists() else {}
+    return cache[path].get(Path(archive).name.removesuffix(".tar"), {})
+
+
+def anonymised_vertices(arc: SceneArchive) -> np.ndarray:
+    """Vertex indices listed in mesh_aligned_0.05_mask.txt (anonymised regions, ignored by the official evaluation;
+    the lists can repeat an index)."""
+    return np.array([int(t) for t in re.split(rb"[\s,]+", arc.read("scans/mesh_aligned_0.05_mask.txt")) if t], np.int64)
+
+
 def decode_image(data: bytes) -> np.ndarray:
     """Every pixel decoded (PIL raises on a truncated or corrupt file)."""
     from PIL import Image
@@ -127,7 +147,7 @@ def check_core(arc: SceneArchive, scene: str, split: str) -> dict:
         raise SceneError("non-finite coord or normal")
     if a["segment"].min() < -1 or a["segment"].max() >= N_CLASSES:
         raise SceneError(f"segment labels outside [-1, {N_CLASSES - 1}]")
-    anon = np.array([int(t) for t in re.split(rb"[\s,]+", arc.read("scans/mesh_aligned_0.05_mask.txt")) if t], np.int64)
+    anon = anonymised_vertices(arc)
     if len(anon) and (anon.min() < 0 or anon.max() >= n):
         raise SceneError("anonymisation mask indexes past the vertices")
     magenta = (a["color"] == MAGENTA).all(1)
@@ -171,8 +191,8 @@ def check_iphone(arc: SceneArchive, scene: str, split: str) -> dict:
         if len(arc.names(f"iphone/{sub}/")) != len(pool):
             raise SceneError(f"iphone/{sub} has {len(arc.names(f'iphone/{sub}/'))} files for {len(pool)} pool frames")
     poses = arc.json("iphone/pose_intrinsic_imu.json.gz")
-    registered = set(re.findall(r"frame_\d{6}\.jpg", gzip.decompress(arc.read("iphone/colmap/images.txt.gz")).decode()))
-    cameras = gzip.decompress(arc.read("iphone/colmap/cameras.txt.gz")).decode()
+    registered = set(re.findall(r"frame_\d{6}\.jpg", arc.unzipped("iphone/colmap/images.txt.gz").decode()))
+    cameras = arc.unzipped("iphone/colmap/cameras.txt.gz").decode()
     models = sorted({line.split()[1] for line in cameras.splitlines() if line.strip() and not line.startswith("#")})
     rgb_hw, zero, median, mask_on = set(), [], [], []
     for frame in pool:
@@ -194,6 +214,7 @@ def check_iphone(arc: SceneArchive, scene: str, split: str) -> dict:
         median.append(float(np.median(depth[depth > 0])) if (depth > 0).any() else 0.0)
         mask_on.append(float((mask > 127).mean()))
     return dict(n_pool=len(pool), n_video_frames=info.get("n_video_frames"), n_registered=len(registered),
+                gz_as_packed=sum(n.endswith(".gz") for n in arc.names("iphone/")),
                 depth_encoding=info.get("depth_encoding"), camera_models=models,
                 rgb_hw=sorted(f"{h}x{w}" for h, w in rgb_hw), depth_zero_max=round(max(zero), 4),
                 depth_median_mm=int(np.median(median)), mask_on=round(float(np.mean(mask_on)), 4))

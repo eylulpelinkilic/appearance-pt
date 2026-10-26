@@ -13,6 +13,7 @@ def load_script(rel_path: str):
     path = ROOT / rel_path
     spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses look their module up here
     spec.loader.exec_module(module)
     return module
 

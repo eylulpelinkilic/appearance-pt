@@ -12,6 +12,7 @@ dev = [
     "pytest>=8",
     "numpy>=1.26",
     "pillow>=12.3.0",
+    "torch>=2.14.1",
 ]
 
 [build-system]

@@ -1,4 +1,4 @@
-"""Frozen point encoders for the pilot: Utonia, Sonata and an untrained PTv3 with Utonia's architecture.
+"""Frozen point encoders for the pilot: Utonia, Sonata, Concerto and an untrained PTv3 with Utonia's architecture.
 
 Loads each encoder for a T4 (no FlashAttention), applies the input transform it was pretrained and
 probed with, and returns the "upcast" per-point features used for linear probing. Where each fact
@@ -12,6 +12,10 @@ was verified: docs/decisions.md (2026-10-24, P1). In short:
   (RandomScale [0.45, 0.55]).
 - Sonata (third_party/sonata, sonata/model.py `load`): same checkpoint layout and 9 input channels;
   transform.default() = CenterShift -> GridSample(0.02), coordinates in metres.
+- Concerto (third_party/concerto, concerto/model.py `load`): Sonata's package with the model list changed;
+  transform.py and SerializedAttention are identical to Sonata's, so the same transform and SDPA swap apply.
+  Weights: concerto_large_origin.pth, the original Concerto (HF model card: the default concerto_large/base/small
+  are a pre-release of Utonia); docs/decisions.md P4.
 - Upcast (pointcept/models/default.py DefaultSegmentorV2.forward, both demo/2_sem_seg.py): walk the
   pooling chain back to the first stage, concatenating every stage's features (width =
   sum(enc_channels)); point.inverse then maps grid-sampled points to the input points.
@@ -22,6 +26,7 @@ from __future__ import annotations
 import contextlib
 import time
 
+import concerto
 import numpy as np
 import sonata
 import torch
@@ -35,6 +40,16 @@ from scenes import KEYS
 WEIGHTS = {
     "utonia": ("Pointcept/Utonia", "9457f025e36c7001ee962a542f0d27a5b600e1e7"),
     "sonata": ("facebook/sonata", "df99897472c09f91ba9288da0a034aacffc0b010"),
+    "concerto": ("Pointcept/Concerto", "efc130718a564eba0ce4899318f3c20b19d9c752"),  # checked 2026-10-26
+}
+PACKAGES = {"utonia": utonia, "sonata": sonata, "concerto": concerto}
+# encoder name: (weights family, checkpoint file); "random" = Utonia's config with untrained weights
+ENCODERS = {
+    "utonia": ("utonia", "utonia.pth"),
+    "sonata": ("sonata", "sonata.pth"),
+    "concerto": ("concerto", "concerto_large_origin.pth"),
+    "concerto_prerelease": ("concerto", "concerto_large.pth"),  # step-1b comparison only
+    "random": ("utonia", "utonia.pth"),
 }
 UTONIA_INDOOR_SCALE = 0.5
 
@@ -47,18 +62,18 @@ def seed_everything(seed: int) -> None:
 
 
 def checkpoint(family: str, filename: str, **kwargs) -> dict:
-    """A {config, state_dict} checkpoint of the "utonia" or "sonata" HF repo at its pinned commit."""
+    """A {config, state_dict} checkpoint of the "utonia", "sonata" or "concerto" HF repo at its pinned commit."""
     repo_id, revision = WEIGHTS[family]
     path = hf_hub_download(repo_id, filename, revision=revision)
-    return (sonata if family == "sonata" else utonia).model.load(path, ckpt_only=True, **kwargs)
+    return PACKAGES[family].model.load(path, ckpt_only=True, **kwargs)
 
 
 def load_encoder(name: str, seed: int = 0) -> tuple[torch.nn.Module, dict]:
-    """name: "utonia", "sonata", or "random" (Utonia's config, weights initialised with `seed`)."""
-    family = "sonata" if name == "sonata" else "utonia"
-    pkg = sonata if family == "sonata" else utonia
+    """name: a key of ENCODERS; "random" is Utonia's config with weights initialised from `seed`."""
+    family, filename = ENCODERS[name]
+    pkg = PACKAGES[family]
     # T4 is sm_75; FlashAttention 2 needs sm_80
-    ckpt = checkpoint(family, f"{family}.pth", custom_config=dict(enable_flash=False))
+    ckpt = checkpoint(family, filename, custom_config=dict(enable_flash=False))
     torch.manual_seed(seed)
     model = pkg.model.PointTransformerV3(**ckpt["config"])
     if name != "random":
@@ -76,8 +91,9 @@ class SegHead(torch.nn.Module):  # module layout of the released *_linear_prob_h
 
 
 def load_scannet_probe(name: str) -> SegHead:
-    """The released ScanNet-20 linear probe for the "utonia" or "sonata" encoder."""
-    ckpt = checkpoint(name, f"{name}_linear_prob_head_sc.pth")
+    """The released ScanNet-20 linear probe for "utonia", "sonata" or "concerto" (concerto_large_linear_prob_head_sc)."""
+    filename = "concerto_large_linear_prob_head_sc.pth" if name == "concerto" else f"{name}_linear_prob_head_sc.pth"
+    ckpt = checkpoint(name, filename)
     head = SegHead(**ckpt["config"])
     head.load_state_dict(ckpt["state_dict"])
     return head.cuda().eval()
@@ -87,9 +103,9 @@ def make_transform(name: str, variant: str = "default"):
     """Input transform for an encoder. Variants other than "default" exist to test Utonia's scale:
     "pointcept_scannetpp_lin": val transform of Pointcept configs/utonia/semseg-utonia-v1m1-2a-scannetpp-lin.py
     (metres, 2 cm grid; copied from the Sonata config); "metric_1cm": transform.default(1.0)."""
-    if name == "sonata":
+    if name in ("sonata", "concerto", "concerto_prerelease"):
         assert variant == "default"
-        return sonata.transform.default()
+        return PACKAGES[ENCODERS[name][0]].transform.default()
     if variant == "default":
         return utonia.transform.default(scale=UTONIA_INDOOR_SCALE)
     if variant == "metric_1cm":
@@ -109,7 +125,8 @@ def make_transform(name: str, variant: str = "default"):
 def sonata_sdpa_forward(self, point):
     """sonata.model.SerializedAttention.forward (non-flash branch) with the attention computed by
     torch SDPA instead of materialising the (patches, heads, K, K) matrix; the memory-efficient kernel
-    runs on sm_75. Same maths as the original for inference (no dropout, no RPE).
+    runs on sm_75. Same maths as the original for inference (no dropout, no RPE). Concerto's
+    SerializedAttention is a verbatim copy of Sonata's, so this serves both.
     Adapted from facebookresearch/sonata (Apache-2.0)."""
     assert not (self.enable_flash or self.enable_rpe or self.training)
     self.patch_size = min(sonata.utils.offset2bincount(point.offset).min().tolist(), self.patch_size_max)
@@ -129,20 +146,24 @@ def sonata_sdpa_forward(self, point):
 
 @contextlib.contextmanager
 def attention_backend(backend: str):
-    """"sdpa" or "manual" (the explicit softmax(QK^T)V product) for both encoders' non-flash branch.
+    """"sdpa" or "manual" (the explicit softmax(QK^T)V product) for all encoders' non-flash branch.
 
     Utonia uses SDPA since Pointcept/Utonia@f832deb unless utonia.model.SDPA_AVAILABLE is False;
-    Sonata only has the manual product, so "sdpa" swaps in sonata_sdpa_forward.
+    Sonata and Concerto only have the manual product, so "sdpa" swaps in sonata_sdpa_forward.
     """
     assert backend in ("sdpa", "manual"), backend
-    saved = utonia.model.SDPA_AVAILABLE, sonata.model.SerializedAttention.forward
+    classes = (sonata.model.SerializedAttention, concerto.model.SerializedAttention)
+    saved = utonia.model.SDPA_AVAILABLE, [c.forward for c in classes]
     utonia.model.SDPA_AVAILABLE = backend == "sdpa"
     if backend == "sdpa":
-        sonata.model.SerializedAttention.forward = sonata_sdpa_forward
+        for c in classes:
+            c.forward = sonata_sdpa_forward
     try:
         yield
     finally:
-        utonia.model.SDPA_AVAILABLE, sonata.model.SerializedAttention.forward = saved
+        utonia.model.SDPA_AVAILABLE = saved[0]
+        for c, forward in zip(classes, saved[1]):
+            c.forward = forward
 
 
 @torch.inference_mode()

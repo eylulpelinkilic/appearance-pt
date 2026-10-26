@@ -107,6 +107,7 @@ def test_check_iphone(tmp_path):
     with st.SceneArchive(iphone_tar(tmp_path / "x.tar")) as arc:
         stats = st.check_iphone(arc, "x", "val")
     assert stats["n_pool"] == 3 and stats["n_registered"] == 4 and stats["camera_models"] == ["OPENCV"]
+    assert stats["gz_as_packed"] == 3
     assert stats["depth_median_mm"] == 1500 and stats["depth_zero_max"] == 0 and stats["mask_on"] == 1
     with st.SceneArchive(iphone_tar(tmp_path / "y.tar", pool=(10, 15))) as arc, pytest.raises(st.SceneError, match="COLMAP"):
         st.check_iphone(arc, "y", "val")  # frame 15 is not registered
@@ -122,12 +123,16 @@ def test_find_scenes_tars_and_unpacked_copies(tmp_path):
                       ("ghi.tar", root / "iphone-val" / "scenes" / "abc.tar")):  # as if Kaggle had unpacked them
         with tarfile.open(src) as tar:
             tar.extractall(root / "unpacked" / "scenes" / name, filter="data")
+    for gz in (root / "unpacked").rglob("*.gz"):  # Kaggle also decompresses .gz files when it unpacks
+        gz.with_suffix("").write_bytes(gzip.decompress(gz.read_bytes()))
+        gz.unlink()
     found = st.find_scenes(root)
     assert {k: sorted(v) for k, v in found.items()} == {"core": ["abc", "def"], "iphone": ["abc", "ghi"]}
     with st.SceneArchive(found["core"]["abc"][0]) as a, st.SceneArchive(found["core"]["def"][0]) as b:
         assert a.names() == b.names() and a.read("dslr/kept_views.json") == b.read("dslr/kept_views.json")
     with st.SceneArchive(found["iphone"]["ghi"][0]) as arc:
-        assert st.check_iphone(arc, "ghi", "val")["n_pool"] == 3
+        stats = st.check_iphone(arc, "ghi", "val")
+    assert stats["n_pool"] == 3 and stats["gz_as_packed"] == 0  # read from the decompressed copies
 
 
 def test_verify_compares_with_the_download_manifest(tmp_path):

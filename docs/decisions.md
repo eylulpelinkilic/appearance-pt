@@ -5,6 +5,115 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
 
 ---
 
+## 2026-10-26 — Direction change; pilot: Concerto (K, K+), step 2 design; dataset check results
+
+### D14. New direction: self-supervised 2D→3D representation learning (user decision, 2026-10-26)
+- **Goal now:** better general point cloud encoders learned from images, without labels, in the direction of Concerto. They are evaluated mainly by linear and decoder probing of frozen encoders on ScanNet++. The project is no longer a supervised, DITR-style segmentation method.
+- **Dropped:** the DITR reproduction (old M5–M6, baseline B). DITR is related work only. `third_party/ditr` stays pinned for reference; no code uses it.
+- **Postponed:** supervised PTv3 training (old M4), together with the reduced training protocol it needed (old M3, `configs/protocol_reduced.py` draft).
+- **Reference encoders:** Sonata (3D-only SSL), Concerto (joint 2D-3D SSL) and Utonia. From the Concerto paper, as given by the user, on ScanNet++ val:
+  - linear probing: Sonata 38.9, Concerto 45.6 mIoU;
+  - decoder probing: Concerto 48.3.
+
+  All three saw ScanNet++ val and test scenes, unlabelled, during pretraining (P2; P4 for Concerto's dataset config).
+- **Pilot additions:** K (Concerto) and K+ (Concerto ⊕ DINO). The key question is whether lifted DINO features still add information on top of Concerto, which was trained to predict DINOv2 features. The report gives per-class gains of K+ over K and the visible/never-seen split.
+- **Planned next phase (not started):** continued pretraining from Sonata weights on ScanNet++ under a fixed GPU budget. Concerto's cross-modal objective is the control; the new objectives are likely higher-resolution cross-modal prediction from ScanNet++'s DSLR images and dense laser scans.
+- **Carried over unchanged:** the data (M2: the same 250 scenes, DSLR and iPhone pools; the iPhone frames and depth may serve pretraining), the official evaluation and the pilot's steps.
+
+### D13 (results). Dataset check `m2_05`, 2026-10-25 23:24 UTC, CPU, 4 processes
+- **Mount paths.** Kaggle now mounts datasets at `/kaggle/input/datasets/<user>/<slug>/`, not `/kaggle/input/<slug>/`. `find_scenes` searches recursively, so nothing had to change.
+- **Core: 250/250 scenes OK** (val 50/50, train 200/200). Every file was read and decoded, and the counts match the manifests. 25.5 GB were read in 3.3 min.
+  - Vertices per scene: 217,160 / 1,152,117 / 13,710,288 (min / median / max).
+  - **Grid points at 2 cm:** 46,705 / 257,693 / 3,313,384. **6 scenes exceed the 1.4M single-pass limit** (P3), so the encoders need chunking only for those.
+  - Labelled fraction: min 0.19, median 0.77.
+  - Anonymised vertices: 107,343 mask entries in 44 scenes, all of them magenta. Magenta vertices in total: 107,305, so the mask lists repeat some indices and no magenta vertex lies outside a mask.
+  - DSLR: 14,971 views (31–60 per scene) with as many masks. All images are 1168×1752 and match `transforms_undistorted.json`; camera model PINHOLE.
+- **iPhone: 0/250 OK, every scene "missing `iphone/pose_intrinsic_imu.json.gz`".**
+  - The error names the archive `09c1414f1b`, not `09c1414f1b.tar`. So Kaggle unpacked each tar into a directory when it built the dataset.
+  - In every scene, `pool.json` and the per-frame RGB, mask and depth counts were present and consistent. Only the gzipped members were "missing", so Kaggle most likely decompressed them too.
+  - **Fix:** `SceneArchive.unzipped` reads either form, and the summary reports which one it found. A test covers an unpacked, decompressed copy.
+  - **Re-run of `m2_05` pending; it must happen before the token expires on 2026-11-01**, so that a genuinely damaged scene can still be downloaded again.
+
+### P4. Concerto (configs K, K+): verified in code; T4 numbers pending (`step1b_concerto.py`)
+- **Code:** `third_party/concerto` = github.com/Pointcept/Concerto @ `5b41117160cdd92c3538be1911277b17e7ef5871` (2026-08-18), Apache-2.0. It is Sonata's package with the model list changed:
+  - `transform.py` is byte-identical to Sonata's;
+  - `SerializedAttention` is identical (diffed), with only the explicit softmax(QKᵀ)V when FlashAttention is off. `encoders.sonata_sdpa_forward` is swapped in for both packages (`attention_backend`).
+- **Loading:** `concerto.model.load(path, custom_config=dict(enable_flash=False), ckpt_only=True)` gives `{config, state_dict}`, then `PointTransformerV3(**config)`, an encoder-only PT-v3m2. This is the same layout as Sonata, so the same upcast loop applies.
+- **Default transform** (`concerto.transform.default()`): `CenterShift(apply_z)` → `GridSample(0.02, mode="train", fnv)` → `NormalizeColor` (/255) → `Collect(coord, color, normal)`; metres, 2 cm voxels, no rescale. Pointcept's Concerto ScanNet++ linear-probe config (`configs/concerto/semseg-ptv3-large-v1m1-2a-scannetpp-lin.py`) tests with the same steps, plus a second `CenterShift(apply_z=False)` after sampling, which is a sub-voxel xy shift.
+- **Weights:** HF `Pointcept/Concerto` @ `efc130718a564eba0ce4899318f3c20b19d9c752` (2026-08-18), CC-BY-NC-4.0.
+
+  | File | Size | What it is |
+  |---|---|---|
+  | `concerto_{tiny,small,base,large}.pth` | 0.02 / 0.15 / 0.43 / 0.83 GB | per the model card, "the pre-release version of our next work, Utonia" (they handle missing colour and normals) |
+  | `concerto_base_origin.pth` | 0.43 GB | per the card, "the original Concerto model" |
+  | `concerto_large_origin.pth` | 0.83 GB | not described in the card |
+  | `concerto_base_siglip.pth` | 0.43 GB | SigLIPv2 instead of DINOv2 |
+  | `concerto_large_outdoor.pth` | 0.83 GB | outdoor model |
+  | `concerto_large_linear_prob_head_sc.pth` | 0.14 MB | ScanNet-20 probe head |
+  | `pretrain-concerto-v1m1-2-large-video.pth` | 8.3 GB | Pointcept training checkpoint: Pointcept's Concerto README links it as "our pre-trained model weight" and probes it with the large configs (`backbone_out_channels=1728`) |
+
+  The package's `MODELS` list (load by name) offers only the pre-release names.
+- **Decision: K uses `concerto_large_origin.pth`.**
+  - Large size: `enc_channels` 64-128-256-512-768, `enc_num_head` 4-8-16-32-48, so head dim 16 and upcast width 1728 (per the probe configs).
+  - Why: it is the original model at the size Pointcept probes on ScanNet++.
+  - **Unverified until step 1b runs:** whether it holds the same backbone as `pretrain-concerto-v1m1-2-large-video.pth`. Step 1b compares the student and teacher backbones tensor by tensor, scores the released ScanNet-20 head on both large backbones (which tells whose head it is), and reports stored config, width, memory and time per scene on a T4.
+- **Distillation target:** Concerto's pretraining configs use `image_weight_name="dinov2_vitg14_reg"` (DINOv2 ViT-g/14 with registers), the same as Utonia (P2). The pilot's DINO block is ViT-L/14 without registers. So K+ − K asks whether lifted ViT-L features add anything beyond a model trained to predict ViT-g features.
+- **Pretraining code in Pointcept** (pin `1342eda`), for the next phase. Reported only; nothing is set up.
+  - `pointcept/models/concerto/concerto_v1m1_base.py` (`Concerto-v1m1`) and `concerto_v1m2_distill.py`.
+  - `configs/concerto/pretrain-concerto-v1m1-0-base.py`, `-1-large-base.py`, `-2-large-video.py` (adds RE10K video), plus linear, decoder and fine-tuning configs for ScanNet, ScanNet200, ScanNet++, S3DIS and outdoor sets.
+  - The large-base config: batch 96 in total, 100 epochs, AdamW lr 0.004. Data: ARKitScenes, ScanNet, ScanNet++ (train + val + test), S3DIS, HM3D and Structured3D through `DefaultImagePointDataset` (`pointcept/datasets/defaults.py`).
+  - ScanNet++ image assets: `pointcept/datasets/preprocessing/concerto/scannetpp/` (`preprocess_scannetpp.py/.sh`, `splits.py`). It uses DSLR undistorted images with COLMAP poses, every 20th registered frame (`frame_gap=20`).
+  - Extra requirements per its README: `transformers==4.50.3`, `peft`.
+
+### P5. Pilot step 2: DSLR cameras and DINO lifting (code: `appearance_pt.scannetpp_cameras`, `experiments/pilot_concat/lifting.py`)
+- **Pose convention (verified in toolbox code).**
+  - `transforms_undistorted.json` frames come from `common/utils/nerfstudio.py convert_frames`, copied unchanged by `dslr/undistort.py`. That function takes COLMAP's camera-to-world, flips the camera y and z axes, swaps world rows x and y, and negates world row z.
+  - `common/render.py` renders `mesh_aligned_0.05.ply` with the COLMAP poses as they are, so COLMAP's world frame is the mesh frame.
+  - `dslr_c2w` undoes the three steps. A unit test checks it against the toolbox's own `convert_frames`.
+- **Run-time check of the convention:** on the first scene, vertex luminance is correlated with photo luminance at the projected pixel for the expected convention and two wrong ones. The best one is used, and a warning is printed if it isn't the expected one.
+  - On a synthetic room (CPU test): expected r 0.77 with 10% of points visible; wrong conventions r 0.35 / 0.02 with 0.1% visible.
+  - Views that face a wall head-on see the side walls at grazing angles and score lower (about 0.6). Diagonal views reach r 0.9995.
+- **Views:** 30 of the kept 60-view pool, evenly in capture order. `is_bad` frames were never kept.
+- **DINOv2:** `facebook/dinov2-large` @ `47b73eefe95e8d44ec3623f8890bd894b6ea2d6c` (Apache-2.0; ViT-L/14, no registers), through HF `transformers` (in the wheelhouse).
+  - Input: the whole image resized to 518×770 (short side 518 per the spec; 770 and 784 are both 7 px from the exact 777, and the smaller was taken), ImageNet normalisation.
+  - Output: last layer after the final norm, patch tokens only, a 37×55 grid, fp16.
+- **Occlusion: a z-buffer of the points themselves, for every scene.** Mesh faces are kept only for val, so mesh-rendered depth is impossible for train scenes.
+  - Cell 8 px (146×219 cells per view), closed with a 3×3 minimum filter.
+  - A point is visible if it is ≥ 5 cm in front of the camera, inside the image, on a mask pixel > 127, and within 2 cm + 5 % of depth of the nearest depth around it.
+  - **Known weakness:** at grazing angles, points up to that tolerance behind the nearest surface share its pixel's feature.
+- **Per point:** bilinear sample of the patch grid at the projected pixel (`align_corners=False`), averaged over the views that see it. The view count is recorded; never-seen points get zeros and count 0.
+- **Visual checks for review** (`step2_lift.py`, 3 val scenes: fewest, median and most vertices):
+  - an overlay of the middle view with six panels: photo; visible points by depth on the photo; vertex colours rendered from the camera; DINO patch PCA of the photo; lifted features rendered with the same PCA; views per vertex;
+  - a top-down view: vertex colours next to the lifted-feature PCA.
+- **Also measured:** seen fraction (all and labelled vertices), views per vertex, and time per stage (DINO per view; z-buffer and lifting per million vertex-views), plus free disk and RAM for step 3.
+- **CPU tests** (CPU torch 2.14.1 added to the local dev group; 526 MB):
+  - toolbox pose round trip;
+  - z-buffer occlusion (a plate in front of a wall), mask and bounds;
+  - patch-centre sampling;
+  - averaging over two views;
+  - colour-agreement discrimination;
+  - PCA;
+  - `run_scene` end to end on a synthetic room packed like a Kaggle-unpacked core scene, with a stand-in for DINOv2.
+
+### S1. Storage for the step-3 training features, now with Concerto (estimate; decision pending)
+200 train scenes × 10,000 labelled points = 2.0M points. Every train scene has at least 41k labelled vertices (min labelled fraction 0.19 × min 217k vertices), so the cap always binds.
+
+| Block | Width | Bytes/point (fp16) | Total |
+|---|---|---|---|
+| Utonia | 1386 | 2,772 | 5.5 GB |
+| Sonata | 1232 | 2,464 | 4.9 GB |
+| **Concerto (new)** | 1728 (to be confirmed by step 1b) | 3,456 | **6.9 GB** |
+| untrained PTv3 | 1386 | 2,772 | 5.5 GB |
+| DINOv2 ViT-L | 1024 | 2,048 | 4.1 GB |
+| xyz, colour, normal (fp32), labels, view count, ids | — | ≈ 51 | 0.1 GB |
+| **Total** | | **≈ 13.6 KB** | **≈ 27.1 GB** (was ≈ 20.2 GB without Concerto) |
+
+- **This does not fit the ~20 GB `/kaggle/working` in one output.** Options:
+  - **(a)** Keep the dump on the session's temp disk and train the probes in the same session, persisting only the probes and metrics. This needs ≈ 30 GB of free temp disk, which step 2 measures.
+  - **(b)** Write one output and one private dataset per block, each 4–7 GB. That adds ≈ 27 GB of private storage (≈ 59 GB in total), and probes can be re-run without re-extracting.
+  - **(c)** 5,000 points per scene: ≈ 13.6 GB.
+- Val needs no dump: step 5 recomputes features per scene on the fly.
+
 ## 2026-10-25 — M2 / pilot data: token extension, token-safe downloads, sizing first
 
 ### D8. Our own download client instead of running the official script

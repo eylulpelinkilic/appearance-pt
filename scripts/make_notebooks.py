@@ -53,12 +53,12 @@ CONCERTO = "concerto"  # concerto_large_origin: healthy in the half-room probe; 
 '''
 
 FIND_PROBES = '''\
-# the step-4 probes, from the attached output of pilot_03_probes
+# the step-4 probes: probes.pt from a pilot_03_probes output, or uploaded on its own as a private dataset
 import pathlib
-found = sorted(pathlib.Path("/kaggle/input").rglob("step4/probes.pt"))
-assert found, "attach the output of pilot_03_probes as an input (Add Input -> Your Work -> Notebooks)"
+found = sorted(pathlib.Path("/kaggle/input").rglob("probes.pt"), key=lambda p: "step4" not in str(p))
+assert found, "attach a dataset or notebook output that contains probes.pt (pilot_concat/step4/ of pilot_03_probes)"
 PROBES = str(found[0])
-print(PROBES)
+print(f"{len(found)} probes.pt found; using {PROBES}")
 '''
 
 SHOW_IMAGES = '''\
@@ -78,8 +78,8 @@ SETTINGS = {
                "`scannetpp-core-train-b`, `scannetpp-iphone-val` and `scannetpp-iphone-train-1` … `-train-4`",
     "coreval": "**Input:** private dataset `scannetpp-core-val`",
     "coreall": "**Inputs:** private datasets `scannetpp-core-val`, `scannetpp-core-train-a` and `scannetpp-core-train-b`",
-    "probes": "**Input:** the output of your `pilot_03_probes` run (Add Input → Your Work → Notebooks), which holds "
-              "`pilot_concat/step4/probes.pt`",
+    "probes": "**Input:** `probes.pt` from a finished `pilot_03_probes` run (its `pilot_concat/step4/` folder): attach that "
+              "notebook's output (Add Input → Your Work → Notebooks), or upload the file as a private dataset and attach it",
     "coretrain": "**Inputs (optional, for the vertex-order check):** private datasets `scannetpp-core-train-a` and "
                  "`scannetpp-core-train-b`",
     "internet": "**Internet:** on",

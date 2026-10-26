@@ -47,6 +47,7 @@ Room", 3DV 2026) is related work only.
 - Kept per scene (private datasets `scannetpp-core-*`, `scannetpp-iphone-*`): Pointcept arrays, a 60-view
   DSLR pool with poses, val raw mesh + annotations, a 60-frame iPhone pool with depth and poses.
   Kaggle unpacks the tars into directories; read them through `appearance_pt.scannetpp_store`.
+  Train-scene mesh triangles (for exact visibility / depth rendering): `scannetpp-train-faces` (D15).
 - Image features (pilot): DINOv2 ViT-L/14 (with registers) patch features lifted to points from ~30 DSLR views; estimate
   storage before any feature dump (PCA to fewer channels is an option).
 - Anonymization: anonymized regions are magenta (255,0,255) in meshes and images, masks provided.

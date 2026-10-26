@@ -69,6 +69,8 @@ SETTINGS = {
                "`scannetpp-core-train-b`, `scannetpp-iphone-val` and `scannetpp-iphone-train-1` … `-train-4`",
     "coreval": "**Input:** private dataset `scannetpp-core-val`",
     "coreall": "**Inputs:** private datasets `scannetpp-core-val`, `scannetpp-core-train-a` and `scannetpp-core-train-b`",
+    "coretrain": "**Inputs (optional, for the vertex-order check):** private datasets `scannetpp-core-train-a` and "
+                 "`scannetpp-core-train-b`",
     "internet": "**Internet:** on",
     "github": "**Secrets** (Add-ons → Secrets): `GITHUB_TOKEN` attached",
     "both_secrets": "**Secrets** (Add-ons → Secrets): `GITHUB_TOKEN` and `SCANNETPP_TOKEN` attached",
@@ -209,6 +211,25 @@ def build() -> dict[str, dict]:
             code(CLONE),
             code(OPEN3D_CPU.format(log="m2_01_scannetpp_trial.log")),
             run_step("scripts/scannetpp/scannetpp_trial.py", "", "m2_01_scannetpp_trial.log"),
+        ]),
+        "notebooks/m2_06_scannetpp_faces.ipynb": notebook([
+            header(
+                "M2-06 · Train-scene mesh triangles, and sizes for the next phase (before the token expires 2026-11-01)",
+                "Downloads `mesh_aligned_0.05.ply` of the 200 train scenes, keeps only its triangles per scene "
+                "(`faces/<scene>.npz`, checked to index the same vertices as Pointcept's `coord.npy`) and deletes the "
+                "rest; this gives exact visibility and depth rendering for DSLR views later. Then asks the server for "
+                "the sizes of the dense laser scans, the full-resolution DSLR images and the panorama assets of the 250 "
+                "subset scenes (no download). Afterwards create the PRIVATE dataset `scannetpp-train-faces` from the "
+                "output. Runs on CPU (no GPU quota); it can run while `pilot_03` runs.",
+                ["cpu", "internet", "both_secrets", "dlconfig", "coretrain"],
+                "Save Version → Save & Run All (Commit) (expected about 30–60 min).",
+                "the SUMMARY block at the end (full log: /kaggle/working/logs/m2_06_scannetpp_faces.log; per-scene "
+                "manifest: /kaggle/working/scannetpp_faces/manifest.json; sizes: .../sizes.csv).",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            code(OPEN3D_CPU.format(log="m2_06_scannetpp_faces.log")),
+            run_step("scripts/scannetpp/scannetpp_faces.py", "", "m2_06_scannetpp_faces.log"),
         ]),
         "notebooks/m2_02_scannetpp_core.ipynb": notebook([
             header(

@@ -20,6 +20,14 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
 - **Planned next phase (not started):** continued pretraining from Sonata weights on ScanNet++ under a fixed GPU budget. Concerto's cross-modal objective is the control; the new objectives are likely higher-resolution cross-modal prediction from ScanNet++'s DSLR images and dense laser scans.
 - **Carried over unchanged:** the data (M2: the same 250 scenes, DSLR and iPhone pools; the iPhone frames and depth may serve pretraining), the official evaluation and the pilot's steps.
 
+### D15. Before the token expires: train-scene triangles and a size survey (user approved, 2026-10-26)
+- **Why:** the point z-buffer reaches only 0.78–0.91 precision against mesh visibility (P6 results), because the decimated mesh leaves flat surfaces with few vertices. Exact visibility, and depth rendering for DSLR views (likely needed by the next phase), need the triangles. Val scenes kept their raw mesh; train scenes did not (D11).
+- **What `m2_06_scannetpp_faces` does** (CPU, `scripts/scannetpp/scannetpp_faces.py`):
+  - downloads `mesh_aligned_0.05.ply` of the 200 train scenes (part of D9's 8.73 GB mesh + labels group);
+  - keeps `faces/<scene>.npz` per scene: triangles (int32), the vertex count, and the SHA-1 of the float32 vertex coordinates, i.e. of Pointcept's `coord.npy`. With the core train datasets attached, the hash is checked against `coord.npy`, so the triangles index the same vertices in the same order. Val showed they are identical (P6 results);
+  - output becomes the private dataset `scannetpp-train-faces`.
+- **Size survey for the next phase** (HEAD requests only, 250 subset scenes, extrapolated to the 856 + 50 scenes): dense laser scans (`pc_aligned.ply`, its mask, scanner poses), full-resolution DSLR images and masks, and the panorama (panocam) assets. Whether to download any of them is the user's decision, and must come before 2026-11-01.
+
 ### D13 (results). Dataset check `m2_05`, 2026-10-25 23:24 UTC, CPU, 4 processes
 - **Mount paths.** Kaggle now mounts datasets at `/kaggle/input/datasets/<user>/<slug>/`, not `/kaggle/input/<slug>/`. `find_scenes` searches recursively, so nothing had to change.
 - **Core: 250/250 scenes OK** (val 50/50, train 200/200). Every file was read and decoded, and the counts match the manifests. 25.5 GB were read in 3.3 min.

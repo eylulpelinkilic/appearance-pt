@@ -325,6 +325,11 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
   - From 1e-3 to 3e-4 the trained encoders gain 0.7–1.6 points. The differences between configs barely move: K+ − K 4.1 → 4.2, S+ − S 9.5 → 9.6, K − S 6.3 → 7.0, C − B 3.9 → 3.3. The final training loss (≈ 0.23–0.27 per encoder phase, still falling) shows that the probes fit the training points closely, so a lower rate acts as regularisation.
   - **Conclusion:** a lower rate would likely raise all absolute numbers by about a point, but not change the comparisons the pilot is about. No re-run for the pilot. The linear-probe protocol for the next phase should extend the grid down (1e-4, 3e-5) and try stronger weight decay; that is a protocol decision for then.
 - **Write-up:** `docs/pilot_concat.md` (2026-10-26). The pilot is complete.
+- **Segmentation maps (asked for by the user, 2026-10-27; `step6_visuals.py`, notebook `pilot_05_visuals`, ≈ 15–20 GPU min):**
+  - shows the seed-0 predictions of A, K and K+ against the toolbox GT on 4 val scenes, chosen from step 5's per-scene mIoU: 1ada7a0617 (K+ − K +9.3), 7b6477cb95 (+3.9, about the average), 27dd4da69e (39 % of vertices never seen; −2.6) and c4c04e6d6c (the largest loss, −8.2);
+  - per scene: two DSLR views (the one where K+ fixes the most pixels net of those it breaks, and one at the median of that score) and a top-down view. Pixels take the label of the nearest vertex of the mesh triangle their ray hits (Open3D);
+  - the run recomputes the predictions as step 5 does and checks each scene's mIoU against step 5's;
+  - the images are ScanNet++-derived, so they stay in the private Kaggle notebook.
 
 ### S1. Storage for the step-3 training features, now with Concerto (decided 2026-10-26: option (a))
 200 train scenes × 10,000 labelled points = 2.0M points. Every train scene has at least 41k labelled vertices (min labelled fraction 0.19 × min 217k vertices), so the cap always binds.

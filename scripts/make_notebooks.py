@@ -62,7 +62,7 @@ print(f"{len(found)} probes.pt found; using {PROBES}")
 '''
 
 SHOW_IMAGES = '''\
-# the step-2 visual checks (ScanNet++-derived: they stay in this private notebook)
+# the images (ScanNet++-derived: they stay in this private notebook)
 from IPython.display import Image as ShowImage, display
 for png in sorted(pathlib.Path("{folder}").glob("*.png")):
     print(png.name)
@@ -409,6 +409,30 @@ def build() -> dict[str, dict]:
             run_step("scripts/setup/install_env.py", "", "pilot_04_install.log"),
             run_step("experiments/pilot_concat/step5_eval.py", ', "--probes", PROBES', "pilot_04_step5.log",
                      env="PILOT_PYTHONPATH"),
+        ]),
+        "experiments/pilot_concat/notebooks/pilot_05_visuals.ipynb": notebook([
+            header(
+                "Pilot · Segmentation maps (what the probes predict on val scenes)",
+                "The pilot's task is semantic segmentation: every vertex of a val scene's mesh gets one of 100 classes. "
+                "This draws the predictions behind step 5's numbers on 4 val scenes (a large gain from DINO, about the "
+                "average gain, many never-seen vertices, and the largest loss): the photo, the ground truth, DINO only "
+                "(A), Concerto (K), Concerto + DINO (K+) and where K and K+ differ, for two camera views per scene and "
+                "from above. The seed-0 predictions are recomputed as in step 5, and each scene's mIoU is checked "
+                "against step 5. The images are ScanNet++-derived, so they stay in this private notebook. "
+                "No `SCANNETPP_TOKEN` needed.",
+                ["gpu", "internet", "github", "pin", "wheels", "coreval", "probes"],
+                "Save Version → Save & Run All (Commit) (expected about 15–20 min).",
+                "the SUMMARY block (full log: /kaggle/working/logs/pilot_05_visuals.log), and look at the images at the "
+                "end of the notebook (files: /kaggle/working/pilot_concat/visuals/*.png).",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            code(PILOT_PATH),
+            code(FIND_PROBES),
+            run_step("scripts/setup/install_env.py", "", "pilot_05_install.log"),
+            run_step("experiments/pilot_concat/step6_visuals.py", ', "--probes", PROBES', "pilot_05_visuals.log",
+                     env="PILOT_PYTHONPATH"),
+            code(SHOW_IMAGES.format(folder="/kaggle/working/pilot_concat/visuals")),
         ]),
     }
 

@@ -262,3 +262,19 @@ def test_steps_1_to_5_on_synthetic_rooms(tmp_path, monkeypatch):
         assert pdf.exists() and pdf.stat().st_size > 50_000
         if os.environ.get("EXP2_KEEP_REPORT"):  # for a look at the rendered report
             shutil.copytree(out / "reports", os.environ["EXP2_KEEP_REPORT"], dirs_exist_ok=True)
+
+
+def test_a_full_run_never_reuses_a_smoke_run(tmp_path):
+    smoke = tmp_path / "input" / "notebooks" / "me" / "exp2" / "Experiment2_CrossAttention"
+    (smoke / "teacher").mkdir(parents=True)
+    (smoke / "teacher" / "teacher.pt").write_bytes(b"x")
+    xattn.mark_mode(smoke, "smoke")
+    (tmp_path / "input" / "datasets" / "core" / "scenes" / "deep").mkdir(parents=True)  # not walked into
+    out = tmp_path / "out"
+    assert xattn.find_previous("teacher/teacher.pt", "smoke", roots=(out,), inputs=tmp_path / "input") == smoke / "teacher" / "teacher.pt"
+    assert xattn.find_previous("teacher/teacher.pt", "full", roots=(out,), inputs=tmp_path / "input") is None
+    xattn.mark_mode(out, "full")
+    xattn.mark_mode(out, "full")  # the same mode again is fine
+    with pytest.raises(SystemExit):
+        xattn.mark_mode(out, "smoke")
+    assert not any(d.name == "deep" for d in xattn.walk_dirs(tmp_path / "input"))

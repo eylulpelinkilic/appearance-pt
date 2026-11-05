@@ -35,7 +35,7 @@ import torch
 
 from appearance_pt.envinfo import collect
 from appearance_pt.runlog import section
-from xattn import (CONFIG, OUT, CrossAttentionTeacher, ObservationStore, cosine_loss, find_previous, gather_triples, load_config,
+from xattn import (CONFIG, OUT, CrossAttentionTeacher, ObservationStore, cosine_loss, find_previous, gather_triples, load_config, mark_mode,
                    peak_gpu_gb, three_distinct)
 
 
@@ -103,6 +103,7 @@ def main() -> int:
     run = load_config(args.config, args.mode)["run"]
     cfg_t = run["teacher"]
     dev = args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
+    mark_mode(args.out, args.mode)
     out = args.out / "teacher"
     out.mkdir(parents=True, exist_ok=True)
     record = collect()
@@ -145,7 +146,7 @@ def main() -> int:
 
     section(f"3. Training ({run['teacher_epochs']} epochs, batch {cfg_t['batch']}, lr {cfg_t['lr']})")
     t_start = time.time()
-    existing = None if args.force else find_previous("teacher/teacher.pt", roots=(args.out,), inputs=args.input)
+    existing = None if args.force else find_previous("teacher/teacher.pt", args.mode, roots=(args.out,), inputs=args.input)
     torch.manual_seed(cfg_t["seed"])
     teacher = CrossAttentionTeacher(store.query.shape[1], store.obs_feat.shape[1], cfg_t["dim"]).to(dev)
     curve = []

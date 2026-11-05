@@ -47,8 +47,8 @@ from metrics import bootstrap_diff, confusion_topk, miou
 from official import OfficialGT
 from probes import NUM_CLASSES, FeatureStore, FeatureWriter, FoldedSet
 from step4_probes import run_phase
-from xattn import (CONFIG, OUT, PointOnlyArchive, dir_gb, load_config, load_points_scene, peak_gpu_gb, prefetch_points,
-                   sample_points, strip_to_points, train_scenes, val_scenes)
+from xattn import (CONFIG, OUT, PointOnlyArchive, dir_gb, load_config, mark_mode, load_points_scene, peak_gpu_gb, prefetch_points,
+                   sample_points, strip_to_points, train_scenes, val_scenes, walk_dirs)
 
 IMAGE_MODULES = ("lifting", "pipeline", "transformers")
 INPUTS = {"S": "point cloud", "S+": "point cloud + 30 posed DSLR photos (lifted DINOv2)", "T": "point cloud"}
@@ -66,11 +66,11 @@ def load_student(path: Path, device: str):
 
 def find_pilot(root: Path) -> Path | None:
     """The folder of the pilot's step-5 outputs (confmats.npz with the Sonata probes, and results.json)."""
-    for path in sorted(Path(root).rglob("confmats.npz")):
-        if (path.parent / "results.json").exists():
-            with np.load(path) as z:
+    for d in walk_dirs(root):
+        if (d / "confmats.npz").exists() and (d / "results.json").exists():
+            with np.load(d / "confmats.npz") as z:
                 if "S#0|top1" in z.files and "S+#0|top1" in z.files:
-                    return path.parent
+                    return d
     return None
 
 
@@ -236,6 +236,7 @@ def main() -> int:
     cfg = load_config(args.config, args.mode)
     run, pcfg = cfg["run"], cfg["run"]["probe"]
     dev = args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
+    mark_mode(args.out, args.mode)
     out = args.out / "evaluation"
     out.mkdir(parents=True, exist_ok=True)
     (args.out / "reports").mkdir(parents=True, exist_ok=True)

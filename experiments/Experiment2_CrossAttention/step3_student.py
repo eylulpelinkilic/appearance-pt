@@ -47,7 +47,7 @@ from encoders import attention_backend, load_encoder, make_transform, seed_every
 from scenes import KEYS
 from stages import Stages, is_oom
 from xattn import (CONFIG, OUT, Clock, CrossAttentionTeacher, ObservationStore, PredictionHead, cosine_loss, crop_indices,
-                   find_previous, gather_all, load_config, load_points_scene, lr_factor, peak_gpu_gb, set_trainable)
+                   find_previous, gather_all, load_config, load_points_scene, lr_factor, mark_mode, peak_gpu_gb, set_trainable)
 
 LOSS = "L = mean over target points p in the crop of [1 - cos(h(f(p)), stop_gradient(t(p)))]"
 MAX_PEAK_GB = 13.5  # of a T4's 15 GB usable, leaving room for allocator fragmentation
@@ -211,16 +211,16 @@ def main() -> int:
     cfg_all = load_config(args.config, args.mode)
     run, cfg_s = cfg_all["run"], cfg_all["run"]["student"]
     dev = args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
-    out = args.out / "student"
-    out.mkdir(parents=True, exist_ok=True)
-    record = collect()
-    print(f"git {json.dumps(record['git'])}\nmode {args.mode}: student {json.dumps(cfg_s)}")
-
     choice = cfg_all["student_choice"]
     if args.mode == "full" and not choice.get("recorded_from_smoke"):
         print("!! config.json student_choice is not recorded yet: run --mode smoke first and record its recommendation "
               "(trainable, crop_points, steps) in student_choice before the full run")
         return 3
+    mark_mode(args.out, args.mode)
+    out = args.out / "student"
+    out.mkdir(parents=True, exist_ok=True)
+    record = collect()
+    print(f"git {json.dumps(record['git'])}\nmode {args.mode}: student {json.dumps(cfg_s)}")
 
     section("1. Targets from the frozen teacher")
     obs_summary = json.loads((args.out / "observations" / "summary.json").read_text())
@@ -294,7 +294,7 @@ def main() -> int:
         model, transform = load_sonata(dev)
         tr = Trainer(model, transform, targets, args.points_cache, cfg_s, trainable, crop_points, steps, dev, archives)
         ckpt = out / "checkpoint.pt"
-        prev = find_previous("student/checkpoint.pt", roots=(args.out,), inputs=args.input)
+        prev = find_previous("student/checkpoint.pt", args.mode, roots=(args.out,), inputs=args.input)
         resumed_from = None
         if prev is not None:
             st = torch.load(prev, weights_only=False)

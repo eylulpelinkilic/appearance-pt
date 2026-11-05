@@ -75,10 +75,15 @@ RUN = "smoke"
 
 EXP2_FIND_PILOT = '''\
 # the pilot's saved step-5 outputs (pilot_concat/step5/ of pilot_04_eval): the two Sonata baseline rows are reused from them
+# (the walk skips the ScanNet++ scene folders: an rglob over them takes minutes)
+import os
 import pathlib
 import numpy as np
-found = [p.parent for p in sorted(pathlib.Path("/kaggle/input").rglob("confmats.npz"))
-         if (p.parent / "results.json").exists() and "S#0|top1" in np.load(p).files]
+found = []
+for d, sub, files in os.walk("/kaggle/input"):
+    sub[:] = sorted(s for s in sub if s not in ("scenes", "wheelhouse"))
+    if "confmats.npz" in files and "results.json" in files and "S#0|top1" in np.load(os.path.join(d, "confmats.npz")).files:
+        found.append(pathlib.Path(d))
 assert found, "attach the pilot_04_eval notebook output (pilot_concat/step5/: confmats.npz and results.json)"
 PILOT = str(found[0])
 print(f"pilot outputs: {PILOT}")

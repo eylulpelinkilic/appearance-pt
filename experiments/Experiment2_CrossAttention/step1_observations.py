@@ -45,7 +45,7 @@ from encoders import attention_backend, encode_scene, load_encoder, make_transfo
 from lifting import DINO, OCCLUSION, lift, load_dino, observe, observed_mean, project
 from pipeline import add_dino, prefetch, scene_views
 from step2_lift import machine
-from xattn import (CONFIG, OUT, dev_split, dir_gb, find_previous, load_config, load_points_scene, peak_gpu_gb, sample_points,
+from xattn import (CONFIG, OUT, dev_split, dir_gb, find_previous, load_config, load_points_scene, mark_mode, peak_gpu_gb, sample_points,
                    save_scene_observations, train_scenes)
 
 
@@ -145,6 +145,7 @@ def main() -> int:
     if dev == "cuda" and not torch.cuda.is_available():
         print("!! no GPU visible: set Accelerator to GPU T4 x2")
         return 2
+    mark_mode(args.out, args.mode)
     root = args.out / "observations"
     root.mkdir(parents=True, exist_ok=True)
     record = collect()
@@ -163,7 +164,7 @@ def main() -> int:
     todo = []
     for scene in scenes:
         if not (root / "scenes" / f"{scene}.npz").exists():
-            prev = find_previous(f"observations/scenes/{scene}.npz", roots=(args.out,), inputs=args.input)
+            prev = find_previous(f"observations/scenes/{scene}.npz", args.mode, roots=(args.out,), inputs=args.input)
             if prev is not None:
                 (root / "scenes").mkdir(parents=True, exist_ok=True)
                 shutil.copy(prev, root / "scenes" / f"{scene}.npz")

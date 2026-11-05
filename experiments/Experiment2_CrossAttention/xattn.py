@@ -14,6 +14,7 @@ Imports nothing from lifting.py or pipeline.py (and so no DINOv2 / transformers)
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -65,15 +66,58 @@ def sample_points(segment: np.ndarray, anonymised: np.ndarray, n: int, seed: int
     return np.sort(np.random.default_rng(seed).choice(cand, min(n, len(cand)), replace=False))
 
 
-def find_previous(rel: str, roots=(OUT,), inputs: Path = Path("/kaggle/input")) -> Path | None:
-    """`rel` under this run's output, else under an attached earlier Experiment2_CrossAttention output (resume)."""
+SKIP_DIRS = {"scenes", "wheelhouse"}  # the core datasets' scene folders hold ~100,000 files; the wheelhouse is not output
+
+
+def walk_dirs(root: Path, max_depth: int = 7):
+    """Directories below root, without descending into scene folders or the wheelhouse: a plain rglob over
+    /kaggle/input with the ScanNet++ datasets attached takes minutes."""
+    root = Path(root)
+    base = len(root.parts)
+    for dirpath, dirnames, _ in os.walk(root, followlinks=True):
+        depth = len(Path(dirpath).parts) - base
+        dirnames[:] = [] if depth >= max_depth else sorted(d for d in dirnames if d not in SKIP_DIRS)
+        yield Path(dirpath)
+
+
+_PREVIOUS: dict = {}
+
+
+def previous_runs(inputs: Path) -> list[Path]:
+    """The Experiment2_CrossAttention folders of attached earlier runs (searched once per process)."""
+    key = str(inputs)
+    if key not in _PREVIOUS:
+        _PREVIOUS[key] = [d for d in walk_dirs(inputs) if d.name == "Experiment2_CrossAttention"] if Path(inputs).exists() else []
+    return _PREVIOUS[key]
+
+
+def run_mode(root: Path) -> str | None:
+    path = Path(root) / "run.json"
+    return json.loads(path.read_text()).get("mode") if path.exists() else None
+
+
+def mark_mode(out: Path, mode: str) -> None:
+    """Record this run's mode in <out>/run.json; refuse to mix a smoke and a full run in one output folder."""
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    found = run_mode(out)
+    if found not in (None, mode):
+        raise SystemExit(f"!! {out} holds a {found} run; this is a {mode} run. Use another --out or start a new session.")
+    (out / "run.json").write_text(json.dumps(dict(mode=mode)))
+
+
+def find_previous(rel: str, mode: str, roots=(OUT,), inputs: Path = Path("/kaggle/input")) -> Path | None:
+    """`rel` under this run's output, else under an attached earlier Experiment2_CrossAttention output of the same
+    mode (resume). An earlier run of the other mode is ignored: a smoke run's small outputs must not end up in a full
+    run."""
     for root in roots:
         if (Path(root) / rel).exists():
             return Path(root) / rel
-    if inputs.exists():
-        for p in sorted(inputs.rglob(rel.split("/")[-1])):
-            if p.as_posix().endswith(f"Experiment2_CrossAttention/{rel}"):
-                return p
+    for prev in previous_runs(inputs):
+        if (prev / rel).exists():
+            if run_mode(prev) == mode:
+                return prev / rel
+            print(f"  ignoring {prev / rel}: it belongs to a {run_mode(prev)} run, this is a {mode} run")
     return None
 
 

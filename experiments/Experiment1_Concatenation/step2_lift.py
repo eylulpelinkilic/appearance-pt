@@ -18,9 +18,9 @@ For 3 val scenes (fewest, median and most vertices, from the download manifest; 
 It also records free disk and RAM for planning step 3. Results: <out>/step2_summary.json. The images are
 ScanNet++-derived, so they stay on Kaggle.
 
-Usage: python experiments/pilot_concat/step2_lift.py [--input /kaggle/input] [--out DIR] [--scenes ID ...] [--views 30]
+Usage: python experiments/Experiment1_Concatenation/step2_lift.py [--input /kaggle/input] [--out DIR] [--scenes ID ...] [--views 30]
        [--occlusion v2]
-Needs PYTHONPATH=src:experiments/pilot_concat (the notebook sets it), a GPU and Internet (Hugging Face weights).
+Needs PYTHONPATH=src:experiments/Experiment1_Concatenation (the notebook sets it), a GPU and Internet (Hugging Face weights).
 """
 
 from __future__ import annotations

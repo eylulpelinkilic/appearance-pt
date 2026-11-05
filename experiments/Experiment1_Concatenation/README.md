@@ -1,5 +1,10 @@
 # Pilot: do lifted DINO image features complement point encoders, including Concerto?
 
+Experiment 1. This folder was `experiments/pilot_concat/` until 2026-11-05 (moved with `git mv`; run IDs, notebooks and
+results unchanged). Its Kaggle outputs keep their paths, `/kaggle/working/pilot_concat/step*/`, so earlier outputs stay
+readable. Experiment 2 (`../Experiment2_CrossAttention/`) imports its shared modules and reuses its frozen Sonata and
+Sonata + DINO rows.
+
 A ScanNet++ v2 version of Concerto's pilot study (NeurIPS 2025, Sec. 2.1, Table 1). Frozen encoders,
 one linear probe per feature set, top-100 semantic classes, scored on all 50 val scenes with the
 official toolbox. Concerto's ScanNet linear-probe numbers: DINOv2 63.1, Sonata 72.5, concatenation 75.9 mIoU.

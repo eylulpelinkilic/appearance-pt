@@ -10,7 +10,7 @@ from appearance_pt import scannetpp_cameras as cams
 from conftest import ROOT, load_script
 
 torch = pytest.importorskip("torch")
-lifting = load_script("experiments/pilot_concat/lifting.py")
+lifting = load_script("experiments/Experiment1_Concatenation/lifting.py")
 
 
 def random_w2c(rng):

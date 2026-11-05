@@ -13,7 +13,7 @@ from PIL import Image
 from conftest import ROOT, load_script
 
 torch = pytest.importorskip("torch")
-sys.path.insert(0, str(ROOT / "experiments" / "pilot_concat"))
+sys.path.insert(0, str(ROOT / "experiments" / "Experiment1_Concatenation"))
 e2e = load_script("tests/test_pilot_steps345.py")
 scenes_test = e2e.scenes_test
 
@@ -21,7 +21,7 @@ scenes_test = e2e.scenes_test
 @pytest.fixture
 def step6(monkeypatch):
     e2e.stub_packages(monkeypatch)
-    return load_script("experiments/pilot_concat/step6_visuals.py")
+    return load_script("experiments/Experiment1_Concatenation/step6_visuals.py")
 
 
 def test_rays_pass_through_pixel_centres(step6):

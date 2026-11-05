@@ -5,7 +5,7 @@ import pytest
 from conftest import load_script
 
 pd = pytest.importorskip("pandas")
-official = load_script("experiments/pilot_concat/official.py")
+official = load_script("experiments/Experiment1_Concatenation/official.py")
 
 
 def table(with_count):

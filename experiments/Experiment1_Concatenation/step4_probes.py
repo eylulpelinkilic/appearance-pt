@@ -11,7 +11,7 @@ onto its leading EQ_WIDTH principal directions). The seeds
 change the head's initialisation and the batch order only; the features are fixed. Each final probe is folded into
 weights on the raw blocks (Probe.fold) and saved to <out>/probes.pt for step 5. Summary: <out>/step4_summary.json.
 
-Usage: python experiments/pilot_concat/step4_probes.py [--features /tmp/pilot_features] [--out DIR]
+Usage: python experiments/Experiment1_Concatenation/step4_probes.py [--features /tmp/pilot_features] [--out DIR]
 """
 
 from __future__ import annotations

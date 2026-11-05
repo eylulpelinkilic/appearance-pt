@@ -17,7 +17,7 @@ from conftest import ROOT, load_script
 
 torch = pytest.importorskip("torch")
 pytest.importorskip("PIL")
-sys.path.insert(0, str(ROOT / "experiments" / "pilot_concat"))
+sys.path.insert(0, str(ROOT / "experiments" / "Experiment1_Concatenation"))
 scenes_test = load_script("tests/test_pilot_step2.py")
 toolbox = load_script("third_party/scannetpp/semantic/utils/confmat.py")
 WIDTHS = {"utonia": 10, "sonata": 9, "concerto": 12, "random": 10}
@@ -96,7 +96,7 @@ def test_steps_3_4_5_on_synthetic_rooms(tmp_path, monkeypatch):
     scenes_test.write_scene(tmp_path / "input" / "core_val", val[0], anonymised=range(0, 40_000, 7))
     scenes_test.write_scene(tmp_path / "input" / "core_val", val[1])
 
-    step3 = load_script("experiments/pilot_concat/step3_features.py")
+    step3 = load_script("experiments/Experiment1_Concatenation/step3_features.py")
     stages = sys.modules["stages"]
     monkeypatch.setattr(step3, "Models", FakeModels)
     monkeypatch.setattr(sys.modules["pipeline"], "encode_scene", fake_encode_scene(stages))
@@ -107,11 +107,11 @@ def test_steps_3_4_5_on_synthetic_rooms(tmp_path, monkeypatch):
     assert meta["n"] == 8000 and len(meta["scenes"]) == 4 and meta["encoder_names"]["concerto"] == "concerto"
     assert np.load(feats / "dino.npy", mmap_mode="r").shape[1] == 9 and (np.load(feats / "views.npy")[:8000] > 0).mean() > 0.3
 
-    step4 = load_script("experiments/pilot_concat/step4_probes.py")
+    step4 = load_script("experiments/Experiment1_Concatenation/step4_probes.py")
     assert run(step4, monkeypatch, ["--features", str(feats), "--out", str(tmp_path / "s4"), "--lrs", "0.05", "--holdout", "1",
                                     "--sweep-epochs", "2", "--epochs", "8", "--seeds", "2", "--batch", "256"]) == 0
 
-    step5 = load_script("experiments/pilot_concat/step5_eval.py")
+    step5 = load_script("experiments/Experiment1_Concatenation/step5_eval.py")
     monkeypatch.setattr(step5, "Models", FakeModels)
     monkeypatch.setattr(step5, "OfficialGT", FakeGT)
     assert run(step5, monkeypatch, ["--input", str(tmp_path / "input"), "--probes", str(tmp_path / "s4" / "probes.pt"),

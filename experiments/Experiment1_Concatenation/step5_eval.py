@@ -12,7 +12,7 @@ the other "+ DINO" pairs); paired bootstrap over scenes for the main differences
 predictions on --official-scenes scenes are written as the toolbox's text files and scored by its eval_semantic.
 Results: <out>/results.json, <out>/confmats.npz (per scene and probe, top-1 and top-3).
 
-Usage: python experiments/pilot_concat/step5_eval.py [--input /kaggle/input] [--probes .../step4/probes.pt] [--out DIR]
+Usage: python experiments/Experiment1_Concatenation/step5_eval.py [--input /kaggle/input] [--probes .../step4/probes.pt] [--out DIR]
 Needs PYTHONPATH=src:third_party/utonia:third_party/sonata:third_party/concerto, a GPU and Internet (weights).
 """
 

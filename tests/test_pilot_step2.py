@@ -16,8 +16,8 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("PIL")
 from PIL import Image  # noqa: E402
 
-sys.path.insert(0, str(ROOT / "experiments" / "pilot_concat"))
-step2 = load_script("experiments/pilot_concat/step2_lift.py")
+sys.path.insert(0, str(ROOT / "experiments" / "Experiment1_Concatenation"))
+step2 = load_script("experiments/Experiment1_Concatenation/step2_lift.py")
 HW, F = (117, 176), 100.0
 
 
@@ -89,7 +89,7 @@ def room_labels(coord):
     return label
 
 
-def write_scene(root, scene, split="val", anonymised=()):
+def write_scene(root, scene, split="val", anonymised=(), n_views=8):
     coord, color = room()
     d = root / "scenes" / scene
     pc = d / "pointcept" / split / scene
@@ -104,7 +104,7 @@ def write_scene(root, scene, split="val", anonymised=()):
     for sub in ("nerfstudio", "resized_undistorted_images", "resized_undistorted_masks"):
         (d / "dslr" / sub).mkdir(parents=True)
     frames, names = [], []
-    for i, yaw in enumerate(np.linspace(0, 2 * np.pi, 8, endpoint=False)):
+    for i, yaw in enumerate(np.linspace(0, 2 * np.pi, n_views, endpoint=False)):
         w2c = w2c_looking(yaw)
         name = f"DSC{i:05d}.JPG"
         (d / "dslr" / "resized_undistorted_images" / name).write_bytes(png(photo(coord, color, w2c)))

@@ -8,8 +8,8 @@ import pytest
 
 from conftest import load_script
 
-metrics = load_script("experiments/pilot_concat/metrics.py")
-classes = load_script("experiments/pilot_concat/step5_classes.py")
+metrics = load_script("experiments/Experiment1_Concatenation/metrics.py")
+classes = load_script("experiments/Experiment1_Concatenation/step5_classes.py")
 
 
 def synthetic(rng, n_scenes=20, c=6, seeds=3):

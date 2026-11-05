@@ -14,7 +14,7 @@ Per scene it checks that the three probes' scene mIoU equals step 5's (seed 0, f
 are the evaluated predictions. A prediction counts as right if it is any of the vertex's GT labels, as in the metric.
 The images are ScanNet++-derived, so they stay on Kaggle. Results: <out>/visuals.json.
 
-Usage: python experiments/pilot_concat/step6_visuals.py [--input /kaggle/input] [--probes .../probes.pt] [--out DIR]
+Usage: python experiments/Experiment1_Concatenation/step6_visuals.py [--input /kaggle/input] [--probes .../probes.pt] [--out DIR]
        [--scenes ID ...]
 Needs PYTHONPATH=src:third_party/utonia:third_party/sonata:third_party/concerto, a GPU, open3d and Internet (weights).
 """

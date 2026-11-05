@@ -6,7 +6,7 @@ import pytest
 from conftest import load_script
 
 torch = pytest.importorskip("torch")
-stages = load_script("experiments/pilot_concat/stages.py")
+stages = load_script("experiments/Experiment1_Concatenation/stages.py")
 
 
 class FakePoint:

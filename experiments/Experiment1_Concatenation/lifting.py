@@ -165,6 +165,33 @@ def lift(points: torch.Tensor, views: list[View], normals: torch.Tensor | None =
         yield start, acc / count.clamp(min=1).unsqueeze(1), count
 
 
+def observe(points: torch.Tensor, views: list[View], normals: torch.Tensor | None = None) -> dict:
+    """What lift() averages, kept per view: for every (point, view) pair where the view sees the point (the same
+    projection, visibility test and bilinear sample as lift), the point's row in `points`, the view's index in
+    `views`, the pixel (u, v) and the patch feature. Pairs are ordered by view, so a per-point index_add over them in
+    order reproduces lift()'s sum exactly. For point sets small enough to hold every observation (lift streams)."""
+    rows, view_ids, uv, feats = [], [], [], []
+    for i, view in enumerate(views):
+        u, v, z = project(points, view.w2c, view.K)
+        idx = visible(u, v, z, view, normals).nonzero().squeeze(1)
+        rows.append(idx)
+        view_ids.append(torch.full_like(idx, i))
+        uv.append(torch.stack([u[idx], v[idx]], dim=1).float())
+        feats.append(sample(view.feat, u[idx], v[idx], view.hw))
+    return dict(row=torch.cat(rows), view=torch.cat(view_ids), uv=torch.cat(uv), feat=torch.cat(feats))
+
+
+def observed_mean(obs: dict, n: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """(n, C) per-point mean of the observations (zeros where none) and (n,) count, computed as lift() does."""
+    acc = torch.zeros(n, obs["feat"].shape[1], device=obs["feat"].device)
+    count = torch.zeros(n, dtype=torch.int32, device=obs["feat"].device)
+    for v in obs["view"].unique(sorted=True):
+        sel = obs["view"] == v
+        acc.index_add_(0, obs["row"][sel], obs["feat"][sel])
+        count[obs["row"][sel]] += 1
+    return acc / count.clamp(min=1).unsqueeze(1), count
+
+
 def colour_agreement(points, colors, keep, view: View, image: torch.Tensor, normals=None) -> dict:
     """Pearson r between vertex luminance and image luminance at the projected pixel, over the visible points:
     high for the right pose convention, near zero for a wrong one."""

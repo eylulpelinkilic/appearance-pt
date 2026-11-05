@@ -12,7 +12,7 @@ memory-mapped arrays to --features on the session's temp disk (probes.FeatureWri
 step 4 reads in the same session. Colours are as Pointcept stores them (anonymised regions magenta), as in the
 encoders' pretraining and Pointcept's probing configs. Summary: <out>/step3_summary.json.
 
-Usage: python experiments/pilot_concat/step3_features.py [--input /kaggle/input] [--features /tmp/pilot_features]
+Usage: python experiments/Experiment1_Concatenation/step3_features.py [--input /kaggle/input] [--features /tmp/pilot_features]
        [--points 10000] [--views 30] [--occlusion v2] [--concerto concerto] [--limit N]
 Needs PYTHONPATH=src:third_party/utonia:third_party/sonata:third_party/concerto, a GPU and Internet (weights).
 """

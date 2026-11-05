@@ -5,6 +5,58 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
 
 ---
 
+## 2026-11-05 — Experiments renamed; Experiment 2: cross-attention teacher and point-only Sonata student
+
+### E1. Experiment folders (user request, 2026-11-05)
+- `experiments/pilot_concat/` → `experiments/Experiment1_Concatenation/` with `git mv`; tests, docs links and
+  `scripts/make_notebooks.py` updated, notebooks regenerated. Notebook names, run IDs, metrics and provenance are
+  unchanged. Entries below this one that name `experiments/pilot_concat/` were rewritten to the new path; their commits
+  still contain the old path.
+- Kaggle output paths are **not** renamed: Experiment 1 still writes `/kaggle/working/pilot_concat/step*/`, so the saved
+  `pilot_03_probes` and `pilot_04_eval` outputs stay usable as inputs.
+- `tests/test_notebooks.py` now also checks that every script a generated notebook runs exists. Verified with the full
+  CPU suite (86 passed, 1 skipped).
+
+### E2. Experiment 2 design (user specification, 2026-11-05; code `experiments/Experiment2_CrossAttention/`)
+- **Question:** how much of the pilot's Sonata + DINO concatenation gain (+9.90 [+7.78, +11.07]) can Sonata recover
+  when images are used only in training, and the result is evaluated on the point cloud alone?
+- **Reused from the pilot (start commit `6dcd7bd`):** sonata.pth (facebook/sonata @ df99897), DINOv2 ViT-L/14 with
+  registers (e4c89a4), the 200 + 50 scenes, 30 DSLR views per scene, occlusion v2, point inputs, the labelled sample
+  (`sample_points` with the scene seed; a test checks equality), the probe recipe (`step4_probes.run_phase`: same grid,
+  hold-out, epochs, seeds, batch; the probe starts from the same initial weights as the pilot's Sonata probe) and the
+  official evaluator.
+- **Cache:** the pilot kept only the averaged DINO feature, on the session's temporary disk, and it is gone.
+  `lifting.observe` (new) is `lift()` stopped before averaging: per (point, camera) the camera, pixel and sampled patch
+  feature. Step 1 checks on every scene that the observations' mean equals `lift()` on the same points (exactly, in the
+  CPU test), that pixels re-project, that vertex ids are unique and cameras distinct. It reports the fraction of the
+  pilot's labelled training points seen by ≥ 3 cameras.
+- **Teacher:**
+  - targets are random non-anonymised vertices with ≥ 3 cameras (no labels); 2048 per train scene, 20 dev scenes held
+    out (the pilot's hold-out draw);
+  - query: W_q on the LayerNorm of the frozen Sonata upcast feature; keys: W_k on the input DINOv2 features; values: the
+    DINOv2 vectors unchanged;
+  - W_q starts at zero, so the untrained teacher is the uniform average;
+  - loss 1 − cos against the held-out camera; new triples every epoch;
+  - diagnostic: teacher vs uniform average on fixed dev triples, with a bootstrap over dev scenes.
+- **Student:**
+  - continued training from sonata.pth on crops (the n vertices nearest a random target point);
+  - eval-mode norms and no stochastic depth, fp16 with loss scaling, AdamW, warm-up and cosine, gradient clipping;
+  - loss `mean_p [1 − cos(h(f(p)), stop_gradient(t(p)))]`, f = the pilot's upcast feature, h = LayerNorm → 1232 → 1024
+    → GELU → 1024, t = the frozen teacher over all of the point's cameras;
+  - the trainable stages and step budget come from the smoke run's measurements and must be recorded in `config.json`
+    `student_choice` before the full run (the step refuses otherwise);
+  - checkpoints every 30 min, with resume.
+- **Evaluation:**
+  - point-only, through `xattn.PointOnlyArchive` (refuses anything but `pointcept/` and the anonymisation list);
+  - a self-check runs the student on a copy of a val scene without images and confirms that no image module was
+    imported;
+  - the three rows: S and S+ recomputed unrounded from the pilot's saved per-scene confusion matrices (checked against
+    their recorded means), T new;
+  - paired scene bootstrap for T − S, T − S+, S+ − S.
+- **Not isolated:** the contribution of learned attention (no student of a uniform-average teacher). The report says so.
+- **Verified on CPU** (`tests/test_exp2.py`): steps 1–5 end to end on synthetic rooms. **Still to verify on Kaggle:**
+  everything on real data, plus peak T4 memory, storage and runtimes (the smoke run measures them).
+
 ## 2026-10-26 — Direction change; pilot: Concerto (K, K+), step 2 design; dataset check results
 
 ### D14. New direction: self-supervised 2D→3D representation learning (user decision, 2026-10-26)
@@ -106,7 +158,7 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
   - ScanNet++ image assets: `pointcept/datasets/preprocessing/concerto/scannetpp/` (`preprocess_scannetpp.py/.sh`, `splits.py`). It uses DSLR undistorted images with COLMAP poses, every 20th registered frame (`frame_gap=20`).
   - Extra requirements per its README: `transformers==4.50.3`, `peft`.
 
-### P5. Pilot step 2: DSLR cameras and DINO lifting (code: `appearance_pt.scannetpp_cameras`, `experiments/pilot_concat/lifting.py`)
+### P5. Pilot step 2: DSLR cameras and DINO lifting (code: `appearance_pt.scannetpp_cameras`, `experiments/Experiment1_Concatenation/lifting.py`)
 - **Pose convention (verified in toolbox code).**
   - `transforms_undistorted.json` frames come from `common/utils/nerfstudio.py convert_frames`, copied unchanged by `dslr/undistort.py`. That function takes COLMAP's camera-to-world, flips the camera y and z axes, swaps world rows x and y, and negates world row z.
   - `common/render.py` renders `mesh_aligned_0.05.ply` with the COLMAP poses as they are, so COLMAP's world frame is the mesh frame.
@@ -481,7 +533,7 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
 
 ## 2026-10-24 — Pilot (Concerto-style concatenation probe), step 1: point encoders
 
-Spec: `experiments/pilot_concat/README.md`. Code: `experiments/pilot_concat/encoders.py`.
+Spec: `experiments/Experiment1_Concatenation/README.md`. Code: `experiments/Experiment1_Concatenation/encoders.py`.
 
 ### P1. Utonia as a pinned submodule; HF weights pinned by commit
 | Component | Pin | License |

@@ -61,6 +61,40 @@ PROBES = str(found[0])
 print(f"{len(found)} probes.pt found; using {PROBES}")
 '''
 
+EXP2_PATH = '''\
+# Experiment 2 imports the encoder packages (pinned submodules), our src/ and Experiment 1's shared modules
+EXP2_PYTHONPATH = {"PYTHONPATH": ":".join(f"{CODE_DIR}/{p}" for p in ("src", "third_party/utonia", "third_party/sonata",
+                                                                     "third_party/concerto", "experiments/Experiment1_Concatenation"))}
+'''
+
+EXP2_RUN = '''\
+# "smoke" first: 6 train and 2 val scenes through every step, with the pre-run checks and memory/time measurements.
+# "full" after the smoke run's student choice is recorded in experiments/Experiment2_CrossAttention/config.json.
+RUN = "smoke"
+'''
+
+EXP2_FIND_PILOT = '''\
+# the pilot's saved step-5 outputs (pilot_concat/step5/ of pilot_04_eval): the two Sonata baseline rows are reused from them
+import pathlib
+import numpy as np
+found = [p.parent for p in sorted(pathlib.Path("/kaggle/input").rglob("confmats.npz"))
+         if (p.parent / "results.json").exists() and "S#0|top1" in np.load(p).files]
+assert found, "attach the pilot_04_eval notebook output (pilot_concat/step5/: confmats.npz and results.json)"
+PILOT = str(found[0])
+print(f"pilot outputs: {PILOT}")
+'''
+
+EXP2_PIP = '''\
+# the report builder needs reportlab (not in the Kaggle image or the wheelhouse); matplotlib is in the image
+run_logged([sys.executable, "-m", "pip", "install", "--quiet", "reportlab==4.2.5"], "/kaggle/working/logs/exp2_pip.log", cwd=CODE_DIR)
+'''
+
+EXP2_OUTPUTS = '''\
+# what this run produced (download /kaggle/working/Experiment2_CrossAttention from the Output tab)
+for p in sorted(pathlib.Path("/kaggle/working/Experiment2_CrossAttention/reports").glob("*")):
+    print(f"{p}  {p.stat().st_size / 1e6:.2f} MB")
+'''
+
 SHOW_IMAGES = '''\
 # the images (ScanNet++-derived: they stay in this private notebook)
 from IPython.display import Image as ShowImage, display
@@ -80,6 +114,10 @@ SETTINGS = {
     "coreall": "**Inputs:** private datasets `scannetpp-core-val`, `scannetpp-core-train-a` and `scannetpp-core-train-b`",
     "probes": "**Input:** `probes.pt` from a finished `pilot_03_probes` run (its `pilot_concat/step4/` folder): attach that "
               "notebook's output (Add Input → Your Work → Notebooks), or upload the file as a private dataset and attach it",
+    "pilot5": "**Input:** the `pilot_04_eval` notebook output (Add Input → Your Work → Notebooks → pilot_04_eval): its "
+              "`pilot_concat/step5/confmats.npz` and `results.json` give the two Sonata baseline rows",
+    "exp2resume": "**Input (only to resume an interrupted run):** the output of the earlier `exp2_cross_attention` session "
+                  "(saved observations, teacher and student checkpoint are picked up from it)",
     "coretrain": "**Inputs (optional, for the vertex-order check):** private datasets `scannetpp-core-train-a` and "
                  "`scannetpp-core-train-b`",
     "internet": "**Internet:** on",
@@ -319,7 +357,7 @@ def build() -> dict[str, dict]:
             code(CLONE),
             run_step("scripts/scannetpp/scannetpp_verify.py", "", "m2_05_scannetpp_verify.log"),
         ]),
-        "experiments/pilot_concat/notebooks/pilot_01_encoders.ipynb": notebook([
+        "experiments/Experiment1_Concatenation/notebooks/pilot_01_encoders.ipynb": notebook([
             header(
                 "Pilot · Step 1 · Frozen point encoders on a T4",
                 "Loads Utonia, Sonata and an untrained PTv3 (Utonia's architecture) without FlashAttention and checks, "
@@ -337,9 +375,9 @@ def build() -> dict[str, dict]:
             code(CLONE),
             code(PILOT_PATH),
             run_step("scripts/setup/install_env.py", "", "pilot_01_encoders.log"),
-            run_step("experiments/pilot_concat/step1_encoders.py", "", "pilot_01_encoders.log", env="PILOT_PYTHONPATH"),
+            run_step("experiments/Experiment1_Concatenation/step1_encoders.py", "", "pilot_01_encoders.log", env="PILOT_PYTHONPATH"),
         ]),
-        "experiments/pilot_concat/notebooks/pilot_02_concerto_lift.ipynb": notebook([
+        "experiments/Experiment1_Concatenation/notebooks/pilot_02_concerto_lift.ipynb": notebook([
             header(
                 "Pilot · Step 1b (Concerto) and Step 2 (DINO lifted to points)",
                 "**Step 1b:** loads Concerto (`concerto_large_origin`, the original model; and the pre-release "
@@ -361,12 +399,12 @@ def build() -> dict[str, dict]:
             code(PILOT_PATH),
             run_step("scripts/setup/install_env.py", "", "pilot_02_install.log"),
             # --tiles with no values: time and memory per scene were measured in the first run (decisions.md P4)
-            run_step("experiments/pilot_concat/step1b_concerto.py", ', "--tiles"', "pilot_02_step1b.log",
+            run_step("experiments/Experiment1_Concatenation/step1b_concerto.py", ', "--tiles"', "pilot_02_step1b.log",
                      env="PILOT_PYTHONPATH", keep_going=True),
-            run_step("experiments/pilot_concat/step2_lift.py", "", "pilot_02_step2.log", env="PILOT_PYTHONPATH"),
+            run_step("experiments/Experiment1_Concatenation/step2_lift.py", "", "pilot_02_step2.log", env="PILOT_PYTHONPATH"),
             code(SHOW_IMAGES.format(folder="/kaggle/working/pilot_concat/step2")),
         ]),
-        "experiments/pilot_concat/notebooks/pilot_03_probes.ipynb": notebook([
+        "experiments/Experiment1_Concatenation/notebooks/pilot_03_probes.ipynb": notebook([
             header(
                 "Pilot · Steps 3–5 (training features, linear probes, evaluation on val)",
                 "**Step 3:** for the 200 train scenes, features of up to 10k labelled vertices each from Utonia, "
@@ -386,12 +424,12 @@ def build() -> dict[str, dict]:
             code(PILOT_PATH),
             code(PILOT_CHOICES),
             run_step("scripts/setup/install_env.py", "", "pilot_03_install.log"),
-            run_step("experiments/pilot_concat/step3_features.py", ', "--occlusion", OCCLUSION, "--concerto", CONCERTO',
+            run_step("experiments/Experiment1_Concatenation/step3_features.py", ', "--occlusion", OCCLUSION, "--concerto", CONCERTO',
                      "pilot_03_step3.log", env="PILOT_PYTHONPATH"),
-            run_step("experiments/pilot_concat/step4_probes.py", "", "pilot_03_step4.log", env="PILOT_PYTHONPATH"),
-            run_step("experiments/pilot_concat/step5_eval.py", "", "pilot_03_step5.log", env="PILOT_PYTHONPATH"),
+            run_step("experiments/Experiment1_Concatenation/step4_probes.py", "", "pilot_03_step4.log", env="PILOT_PYTHONPATH"),
+            run_step("experiments/Experiment1_Concatenation/step5_eval.py", "", "pilot_03_step5.log", env="PILOT_PYTHONPATH"),
         ]),
-        "experiments/pilot_concat/notebooks/pilot_04_eval.ipynb": notebook([
+        "experiments/Experiment1_Concatenation/notebooks/pilot_04_eval.ipynb": notebook([
             header(
                 "Pilot · Step 5 only (evaluation on val), with the probes of a finished pilot_03 run",
                 "Runs step 5 (every probe on the 50 val scenes, official ScanNet++ metric, cross-check with the "
@@ -407,10 +445,10 @@ def build() -> dict[str, dict]:
             code(PILOT_PATH),
             code(FIND_PROBES),
             run_step("scripts/setup/install_env.py", "", "pilot_04_install.log"),
-            run_step("experiments/pilot_concat/step5_eval.py", ', "--probes", PROBES', "pilot_04_step5.log",
+            run_step("experiments/Experiment1_Concatenation/step5_eval.py", ', "--probes", PROBES', "pilot_04_step5.log",
                      env="PILOT_PYTHONPATH"),
         ]),
-        "experiments/pilot_concat/notebooks/pilot_05_visuals.ipynb": notebook([
+        "experiments/Experiment1_Concatenation/notebooks/pilot_05_visuals.ipynb": notebook([
             header(
                 "Pilot · Segmentation maps (what the probes predict on val scenes)",
                 "The pilot's task is semantic segmentation: every vertex of a val scene's mesh gets one of 100 classes. "
@@ -430,9 +468,45 @@ def build() -> dict[str, dict]:
             code(PILOT_PATH),
             code(FIND_PROBES),
             run_step("scripts/setup/install_env.py", "", "pilot_05_install.log"),
-            run_step("experiments/pilot_concat/step6_visuals.py", ', "--probes", PROBES', "pilot_05_visuals.log",
+            run_step("experiments/Experiment1_Concatenation/step6_visuals.py", ', "--probes", PROBES', "pilot_05_visuals.log",
                      env="PILOT_PYTHONPATH"),
             code(SHOW_IMAGES.format(folder="/kaggle/working/pilot_concat/visuals")),
+        ]),
+        "experiments/Experiment2_CrossAttention/notebooks/exp2_cross_attention.ipynb": notebook([
+            header(
+                "Experiment 2 · Cross-attention teacher and point-only Sonata student",
+                "How much of the pilot's Sonata + DINO concatenation gain can a point-only student recover? In order: "
+                "**step 1** per-view DINOv2 observations of training points (the pilot's lifting, kept per camera); "
+                "**step 2** a cross-attention teacher (frozen Sonata query, two input views, a held-out third); "
+                "**step 3** continued training of Sonata as a point-only student of the frozen teacher; "
+                "**step 4** evaluation on the pilot's terms (point-only features, the pilot's probe recipe, all val "
+                "vertices, official metric) next to the pilot's frozen Sonata and Sonata + DINO rows; **step 5** the PDF "
+                "report. Outputs: /kaggle/working/Experiment2_CrossAttention/. Set RUN below: \"smoke\" first, then "
+                "\"full\". No `SCANNETPP_TOKEN` needed.",
+                ["gpu", "internet", "github", "pin", "wheels", "coreall", "pilot5", "exp2resume"],
+                "Save Version → Save & Run All (Commit). Smoke: about 30–45 min. Full: about 3–4 h (the smoke run "
+                "prints the estimate); needs the user's go-ahead (> 2 h).",
+                "the SUMMARY block of every step (logs: /kaggle/working/logs/exp2_*.log); the report is "
+                "/kaggle/working/Experiment2_CrossAttention/reports/sonata_cross_attention_report.pdf.",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            code(EXP2_PATH),
+            code(EXP2_RUN),
+            code(EXP2_FIND_PILOT),
+            run_step("scripts/setup/install_env.py", "", "exp2_install.log"),
+            code(EXP2_PIP),
+            run_step("experiments/Experiment2_CrossAttention/step1_observations.py", ', "--mode", RUN', "exp2_step1.log",
+                     env="EXP2_PYTHONPATH"),
+            run_step("experiments/Experiment2_CrossAttention/step2_teacher.py", ', "--mode", RUN', "exp2_step2.log",
+                     env="EXP2_PYTHONPATH"),
+            run_step("experiments/Experiment2_CrossAttention/step3_student.py", ', "--mode", RUN', "exp2_step3.log",
+                     env="EXP2_PYTHONPATH"),
+            run_step("experiments/Experiment2_CrossAttention/step4_evaluate.py", ', "--mode", RUN, "--pilot", PILOT',
+                     "exp2_step4.log", env="EXP2_PYTHONPATH"),
+            run_step("experiments/Experiment2_CrossAttention/step5_report.py", ', "--mode", RUN', "exp2_step5.log",
+                     env="EXP2_PYTHONPATH"),
+            code(EXP2_OUTPUTS),
         ]),
     }
 

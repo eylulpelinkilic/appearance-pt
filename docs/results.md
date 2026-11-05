@@ -9,11 +9,11 @@ on `mesh_aligned_0.05.ply` with anonymized vertices excluded (see `configs/proto
 
 | Run ID | Date | Model | Config | Git commit | Seed | Protocol | Env (torch / wheelhouse) | Iters | GPU h | Val mIoU top-1 | Val mIoU top-3 | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| pilot_04 | 2026-10-26 | linear probes on frozen features (12 configs) | `experiments/pilot_concat` | in results.json | 0–2 | pilot (P7) | torch 2.11.0+cu128 / appearance-pt-wheels | 15 epochs | ≈ 0.75 (eval) | see Aggregates | see Aggregates | probes from pilot_03 (steps 3–4) |
+| pilot_04 | 2026-10-26 | linear probes on frozen features (12 configs) | `experiments/Experiment1_Concatenation` | in results.json | 0–2 | pilot (P7) | torch 2.11.0+cu128 / appearance-pt-wheels | 15 epochs | ≈ 0.75 (eval) | see Aggregates | see Aggregates | probes from pilot_03 (steps 3–4) |
 
 ## Aggregates (mean ± std over seeds)
 
-Pilot (frozen encoders, one linear probe each; `experiments/pilot_concat/README.md`). The supervised
+Pilot (frozen encoders, one linear probe each; `experiments/Experiment1_Concatenation/README.md`). The supervised
 PTv3 and DITR rows were removed when the project changed direction (decisions.md D14).
 
 | Config | Features | Seeds | Val mIoU top-1 | Val mIoU top-3 |

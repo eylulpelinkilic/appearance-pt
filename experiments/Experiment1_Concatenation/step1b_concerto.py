@@ -13,7 +13,7 @@ On Pointcept's public demo room it checks
 then measures GPU time and peak memory per scene against scene size (the room tiled k x k; --tiles with no values
 skips it). Results: <out>/step1b_summary.json and <out>/env_record.json.
 
-Usage: python experiments/pilot_concat/step1b_concerto.py [--out DIR] [--tiles 1 2 3] [--skip-pretrain-check]
+Usage: python experiments/Experiment1_Concatenation/step1b_concerto.py [--out DIR] [--tiles 1 2 3] [--skip-pretrain-check]
 Needs PYTHONPATH=src:third_party/utonia:third_party/sonata:third_party/concerto and Internet (Hugging Face).
 """
 

@@ -9,7 +9,7 @@ On Pointcept's public demo room (a ScanNet scan with ScanNet-20 labels) it check
 then measures GPU time and peak memory per scene against scene size (the room tiled k x k;
 real scenes with --scenes). Results: <out>/step1_summary.json and <out>/env_record.json.
 
-Usage: python experiments/pilot_concat/step1_encoders.py [--out DIR] [--tiles 1 2 3] [--scenes DIR]
+Usage: python experiments/Experiment1_Concatenation/step1_encoders.py [--out DIR] [--tiles 1 2 3] [--scenes DIR]
 Needs PYTHONPATH=src:third_party/utonia:third_party/sonata and Internet (Hugging Face weights).
 """
 

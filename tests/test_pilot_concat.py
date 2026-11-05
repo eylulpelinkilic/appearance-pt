@@ -1,4 +1,4 @@
-"""Pilot (experiments/pilot_concat): helpers that run without a GPU."""
+"""Pilot (experiments/Experiment1_Concatenation): helpers that run without a GPU."""
 
 import itertools
 
@@ -6,7 +6,7 @@ import numpy as np
 
 from conftest import load_script
 
-scenes = load_script("experiments/pilot_concat/scenes.py")
+scenes = load_script("experiments/Experiment1_Concatenation/scenes.py")
 
 
 def fake_room(n=500, seed=0):

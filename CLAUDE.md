@@ -9,9 +9,15 @@ Room", 3DV 2026) is related work only.
 - Reference encoders: Sonata (3D-only SSL), Concerto (joint 2D-3D SSL), Utonia. Concerto paper,
   ScanNet++ val: linear probing Sonata 38.9, Concerto 45.6 mIoU; decoder probing Concerto 48.3.
   These models saw ScanNet++ val (and test) scenes, unlabelled, during pretraining.
-- **Pilot done (2026-10-26)** (`experiments/pilot_concat/`, write-up `docs/pilot_concat.md`): Concerto-style
-  linear probes on frozen features. Lifted DINO still adds +2.7 [+1.2, +4.0] mIoU on top of Concerto
-  (vs +9.9 on Sonata), mostly on small, appearance-defined objects.
+- **Experiment 1, pilot done (2026-10-26)** (`experiments/Experiment1_Concatenation/`, renamed from
+  `experiments/pilot_concat/` on 2026-11-05; write-up `docs/pilot_concat.md`): Concerto-style linear probes on frozen
+  features. Lifted DINO still adds +2.7 [+1.2, +4.0] mIoU on top of Concerto (vs +9.9 on Sonata), mostly on small,
+  appearance-defined objects. Its Kaggle outputs stay under `/kaggle/working/pilot_concat/` (baseline rows are reused).
+- **Experiment 2, now (user request 2026-11-05)** (`experiments/Experiment2_CrossAttention/`): a cross-attention teacher
+  (frozen Sonata query, two input views, a held-out third) and continued training of Sonata as a point-only student,
+  probed on the pilot's terms against the pilot's frozen Sonata and Sonata + DINO rows. Outputs under
+  `/kaggle/working/Experiment2_CrossAttention/`; report `reports/sonata_cross_attention_report.pdf`. Smoke run first;
+  the student's trainable layers and step budget are recorded in its `config.json` before the full run (> 2 h: ask).
 - **Next phase (planned, do NOT start without the user):** continued pretraining from Sonata weights
   on ScanNet++ under a fixed GPU budget, comparing Concerto's cross-modal objective (control) with
   new objectives (likely higher-resolution cross-modal prediction using ScanNet++'s DSLR images and
@@ -59,11 +65,13 @@ Room", 3DV 2026) is related work only.
 - **M1 Environment**: inspect machine, repo skeleton, one environment, spconv + pointops (no
   flash-attn), Sonata/Utonia smoke test.
 - **M2 Data + evaluation** (above).
-- **Pilot** (`experiments/pilot_concat/README.md`): frozen encoders + linear probes. Configs A (DINO),
+- **Pilot** (`experiments/Experiment1_Concatenation/README.md`): frozen encoders + linear probes. Configs A (DINO),
   B (Utonia), C (Utonia ⊕ DINO, also PCA-equalised), S (Sonata), S+ (Sonata ⊕ DINO), K (Concerto),
   K+ (Concerto ⊕ DINO), R (random PTv3, alone and ⊕ DINO), X (xyz, colour, normal). Steps 1–5; stop
   after step 1, after the step-2 visual check, and report storage before the step-3 feature dump.
   Report per-class gains of K+ over K and the visible / never-seen split.
+- **Experiment 2** (`experiments/Experiment2_CrossAttention/README.md`): stop after the smoke run (report its measurements
+  and record the student choice) and before the full run.
 - **Pretraining phase**: planned after the pilot (see Project); not specified yet.
 - **Postponed** (supervised; only if the user brings them back): M3 reduced training protocol and
   M4 PTv3 baseline. **Dropped:** the DITR reproduction (old M5–M6, baseline B).

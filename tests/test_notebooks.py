@@ -21,3 +21,14 @@ def test_notebook_code_cells_are_valid_python():
         for cell in nb["cells"]:
             if cell["cell_type"] == "code":
                 ast.parse("".join(cell["source"]), filename=f"{name}:{cell['id']}")
+
+
+def test_notebook_steps_point_to_existing_scripts():
+    """Every script a generated notebook runs (run_step's "<path>.py") exists in the repo."""
+    import re
+
+    for name in mk.build():
+        nb = json.loads((ROOT / name).read_text())
+        source = "".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
+        for script in re.findall(r'"-u", "([^"]+\\.py)"', source):
+            assert (ROOT / script).is_file(), f"{name} runs {script}, which does not exist"

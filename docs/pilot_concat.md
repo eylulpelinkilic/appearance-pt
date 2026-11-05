@@ -1,6 +1,6 @@
 # Pilot: do lifted DINOv2 features still add to Concerto? (ScanNet++ v2, linear probes)
 
-2026-10-26. Code: `experiments/pilot_concat/`. Design, checks and raw numbers: `docs/decisions.md` P3–P7.
+2026-10-26. Code: `experiments/Experiment1_Concatenation/`. Design, checks and raw numbers: `docs/decisions.md` P3–P7.
 Runs: Kaggle notebooks `pilot_02_concerto_lift` (steps 1b–2), `pilot_03_probes` (steps 3–4, commit `b949425`),
 `pilot_04_eval` (step 5, commit `03228a2`).
 
@@ -195,7 +195,7 @@ These are suggestions, to be decided with the user.
   evaluation 45 min).
 - **Step 5 alone:** `pilot_04_eval`, from a saved `probes.pt`.
 - **Per-class intervals:**
-  `python experiments/pilot_concat/step5_classes.py --results results.json --confmats confmats.npz` (local, CPU).
+  `python experiments/Experiment1_Concatenation/step5_classes.py --results results.json --confmats confmats.npz` (local, CPU).
 
 ## Appendix: per-class K+ − K
 

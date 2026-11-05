@@ -8,7 +8,7 @@ also grouped into thirds by vertex count, and the pairs' per-class gains are ran
 DINO helps the same classes on top of every encoder. The seen / never-seen per-class gains are taken from
 results.json without intervals (step 5 keeps those confusion matrices only summed over scenes).
 
-Usage: python experiments/pilot_concat/step5_classes.py --results results.json --confmats confmats.npz [--out DIR]
+Usage: python experiments/Experiment1_Concatenation/step5_classes.py --results results.json --confmats confmats.npz [--out DIR]
 Writes <out>/classes.json and <out>/classes.md (default: next to results.json).
 """
 

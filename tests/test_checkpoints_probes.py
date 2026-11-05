@@ -11,7 +11,7 @@ from conftest import load_script
 torch = pytest.importorskip("torch")
 from appearance_pt.checkpoints import Inert, InertUnpickler, load_inert  # noqa: E402
 
-probes = load_script("experiments/pilot_concat/probes.py")
+probes = load_script("experiments/Experiment1_Concatenation/probes.py")
 CALLED = []
 
 
@@ -109,7 +109,7 @@ def test_step4_end_to_end_on_a_tiny_store(tmp_path, monkeypatch):
         w.add(f"s{s}", {b: (centres[b][y] + rng.normal(size=(200, d))).astype(np.float16) for b, d in widths.items()},
               y, rng.integers(0, 4, 200))
     w.close()
-    step4 = load_script("experiments/pilot_concat/step4_probes.py")
+    step4 = load_script("experiments/Experiment1_Concatenation/step4_probes.py")
     monkeypatch.setattr(sys, "argv", ["step4", "--features", str(tmp_path / "f"), "--out", str(tmp_path / "out"),
                                       "--lrs", "0.003", "0.03", "--holdout", "2", "--sweep-epochs", "2", "--epochs", "2",
                                       "--seeds", "2", "--batch", "256"])

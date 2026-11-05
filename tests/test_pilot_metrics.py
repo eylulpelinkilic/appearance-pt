@@ -6,7 +6,7 @@ import pytest
 from conftest import load_script
 
 torch = pytest.importorskip("torch")
-metrics = load_script("experiments/pilot_concat/metrics.py")
+metrics = load_script("experiments/Experiment1_Concatenation/metrics.py")
 toolbox = load_script("third_party/scannetpp/semantic/utils/confmat.py")
 
 

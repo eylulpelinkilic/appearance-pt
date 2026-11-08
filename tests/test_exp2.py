@@ -241,6 +241,7 @@ def test_steps_1_to_5_on_synthetic_rooms(tmp_path, monkeypatch):
         return model.eval(), None, {k: v for k, v in saved.items() if k != "state_dict"}
 
     monkeypatch.setattr(step4, "load_student", load_student)
+    monkeypatch.setattr(step4, "load_frozen_sonata", lambda device: (FakeSonata().eval(), None))
     monkeypatch.setattr(step4, "encode_scene", fake_encode_scene)
     monkeypatch.setattr(step4, "OfficialGT", e2e.FakeGT)
     assert run(step4, ["--pilot", str(tmp_path / "pilot" / "pilot_concat" / "step5"), "--features", str(tmp_path / "feat"),
@@ -252,6 +253,11 @@ def test_steps_1_to_5_on_synthetic_rooms(tmp_path, monkeypatch):
     assert m["protocol"]["train_scenes_match"] and m["protocol"]["all_pilot_train_scenes"]
     assert m["image_free"]["ok"] and m["image_free"]["max_abs_feature_diff"] == 0.0
     assert set(m["image_free"]["archive_reads"]) <= {"pointcept", "scans/mesh_aligned_0.05_mask.txt"}
+    ctrl = m["control"]
+    assert ctrl["row"]["seeds"] == 2 and set(ctrl["diffs"]) == {"Sr - S", "T - Sr"}
+    assert abs(ctrl["diffs"]["T - Sr"]["diff"] - (m["rows"]["T"]["top1"] - ctrl["row"]["top1"])) < 1e-12
+    probes = torch.load(out / "evaluation" / "probes.pt", weights_only=False)
+    assert set(probes["probes"]) == {"T#0", "T#1", "Sr#0", "Sr#1"} and set(probes["lr"]) == {"T", "Sr"}
     d = m["diffs"]["S+ - S"]
     assert d["diff"] > 0 and d["lo"] <= d["diff"] <= d["hi"]
     assert abs(m["recovered_fraction"] - (m["rows"]["T"]["top1"] - m["rows"]["S"]["top1"]) / m["concatenation_gain"]) < 1e-12

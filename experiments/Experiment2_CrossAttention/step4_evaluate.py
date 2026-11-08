@@ -14,6 +14,10 @@ anonymisation list and refuses images and cameras; no image, camera, DINO cache 
      the toolbox's own ground truth (official.OfficialGT), top-1 and top-3 confusion matrices per scene and seed
      (metrics.confusion_topk, equal to the toolbox's). Points with fewer than three cameras are included: the camera
      requirement only selected training targets.
+  3b. Protocol check: the original frozen Sonata (sonata.pth) goes through the same steps 1-3 (its own features at the
+     same points, the same probe recipe as its own configuration, so its probes start from the pilot's Sonata probe
+     weights). In the full run it should reproduce the pilot's frozen-Sonata row within seed noise; in the smoke run
+     (small probe recipe) it is the like-for-like reference for the student.
   4. Image-free self-check: one val scene copied without dslr/ and iphone/ gives the same student features; the
      archive reads are logged; no image module (lifting, pipeline, transformers) is imported by this step.
   5. The three rows: frozen Sonata (S) and frozen Sonata + lifted DINOv2 (S+) recomputed unrounded from the pilot's
@@ -51,8 +55,10 @@ from xattn import (CONFIG, OUT, PointOnlyArchive, dir_gb, load_config, mark_mode
                    sample_points, strip_to_points, train_scenes, val_scenes, walk_dirs)
 
 IMAGE_MODULES = ("lifting", "pipeline", "transformers")
-INPUTS = {"S": "point cloud", "S+": "point cloud + 30 posed DSLR photos (lifted DINOv2)", "T": "point cloud"}
-NAMES = {"S": "Frozen Sonata", "S+": "Frozen Sonata + lifted DINOv2 (concatenation)", "T": "Point-only Sonata student"}
+INPUTS = {"S": "point cloud", "S+": "point cloud + 30 posed DSLR photos (lifted DINOv2)", "T": "point cloud", "Sr": "point cloud"}
+NAMES = {"S": "Frozen Sonata", "S+": "Frozen Sonata + lifted DINOv2 (concatenation)", "T": "Point-only Sonata student",
+         "Sr": "Frozen Sonata, rerun in this evaluation"}
+BLOCKS = {"T": "student", "Sr": "sonata"}  # configuration: feature block (each probed on its own, with the pilot's recipe)
 
 
 def load_student(path: Path, device: str):
@@ -62,6 +68,13 @@ def load_student(path: Path, device: str):
     model.load_state_dict(saved["state_dict"])
     model.requires_grad_(False)
     return model.to(device).eval(), make_transform("sonata"), {k: v for k, v in saved.items() if k != "state_dict"}
+
+
+def load_frozen_sonata(device: str):
+    """The original Sonata (sonata.pth at the pinned commit), frozen: the protocol check's encoder."""
+    model, _ = load_encoder("sonata", seed=0)
+    model.requires_grad_(False)
+    return model.to(device).eval(), make_transform("sonata")
 
 
 def find_pilot(root: Path) -> Path | None:
@@ -74,48 +87,59 @@ def find_pilot(root: Path) -> Path | None:
     return None
 
 
-def train_features(model, transform, archives, scenes, n_points, root, dev, workers) -> dict:
+def train_features(encoders: dict, archives, scenes, n_points, root, dev, workers) -> dict:
+    """encoders: {block: (model, transform)}; each block's features at the pilot's labelled sample of every scene."""
     writer, rows, t0 = None, [], time.time()
     for i, (scene, s, waited) in enumerate(prefetch_points([(sc, archives[sc]) for sc in scenes], workers), 1):
         if isinstance(s, Exception):
             raise s
         seed = scene_seed(scene)
         idx = sample_points(s["segment"], s["anonymised"], n_points, seed)
-        stages, tiles = encode_scene(model, transform, s, seed, store="cpu")
-        feats = stages.gather(torch.from_numpy(idx), device=dev).cpu().numpy()
+        blocks, tiles = {}, {}
+        for block, (model, transform) in encoders.items():
+            stages, tiles[block] = encode_scene(model, transform, s, seed, store="cpu")
+            blocks[block] = stages.gather(torch.from_numpy(idx), device=dev).cpu().numpy()
         if writer is None:
-            writer = FeatureWriter(root, n_points * len(scenes), {"student": feats.shape[1]}, {"student": np.float16})
-        writer.add(scene, {"student": feats}, s["segment"][idx, 0].astype(np.int16), np.zeros(len(idx), np.int16))
+            writer = FeatureWriter(root, n_points * len(scenes), {b: f.shape[1] for b, f in blocks.items()},
+                                   {b: np.float16 for b in blocks})
+        writer.add(scene, blocks, s["segment"][idx, 0].astype(np.int16), np.zeros(len(idx), np.int16))
         rows.append(dict(scene=scene, points=len(idx), tiles=tiles, waited=waited))
         if i % 20 == 0 or i == len(scenes):
             print(f"  [{i}/{len(scenes)}] train features; {(time.time() - t0) / 60:.1f} min", flush=True)
-    meta = writer.close(encoder="student", points_per_scene=n_points)
+    meta = writer.close(encoders=list(encoders), points_per_scene=n_points)
     return dict(rows=meta["n"], scenes=len(rows), minutes=round((time.time() - t0) / 60, 2), store_gb=dir_gb(root))
 
 
 def fit_probes(root: Path, pcfg: dict, device: str) -> tuple[dict, dict]:
-    """The pilot's probe recipe for one configuration T on the student block (registered in probes.CONFIGS only
-    while the probes train)."""
+    """The pilot's probe recipe, each configuration (BLOCKS) in its own phase, as the pilot trained its Sonata probe:
+    learning rate from the grid on the held-out scenes, then the seeds on all scenes. A configuration alone in its
+    phase gets the pilot's Sonata probe's initial weights and batch order. Configurations are registered in
+    probes.CONFIGS only while their probes train."""
     store = FeatureStore(root)
     n = len(store.scenes)
     order = np.random.default_rng(0).permutation(n)
     held, train = sorted(order[:pcfg["holdout"]].tolist()), sorted(order[pcfg["holdout"]:].tolist())
     args = SimpleNamespace(batch=pcfg["batch"])
-    probes_mod.CONFIGS["T"] = (("student",), False)
-    try:
-        _, _, sweep_curve, held_miou = run_phase(store, train, ("student",), ["T"], pcfg["lrs"], lambda k: float(k.split("@")[1]),
-                                                 pcfg["sweep_epochs"], args, device, eval_ids=held)
-        best = max(pcfg["lrs"], key=lambda lr: held_miou[f"T@{lr:g}"])
-        probes, stats, curve, _ = run_phase(store, list(range(n)), ("student",), ["T"], list(range(pcfg["seeds"])),
-                                            lambda k: best, pcfg["epochs"], args, device)
-    finally:
-        probes_mod.CONFIGS.pop("T", None)
-    folded = {k: p.fold(stats) for k, p in probes.items()}
-    return folded, dict(lr=best, held_out_miou=held_miou, held_out_scenes=[store.scenes[i]["id"] for i in held],
-                        sweep_loss=sweep_curve, final_loss=curve)
+    folded, info = {}, {}
+    for config, block in BLOCKS.items():
+        if block not in store.widths:
+            continue
+        probes_mod.CONFIGS[config] = ((block,), False)
+        try:
+            _, _, sweep_curve, held_miou = run_phase(store, train, (block,), [config], pcfg["lrs"], lambda k: float(k.split("@")[1]),
+                                                     pcfg["sweep_epochs"], args, device, eval_ids=held)
+            best = max(pcfg["lrs"], key=lambda lr: held_miou[f"{config}@{lr:g}"])
+            probes, stats, curve, _ = run_phase(store, list(range(n)), (block,), [config], list(range(pcfg["seeds"])),
+                                                lambda k: best, pcfg["epochs"], args, device)
+        finally:
+            probes_mod.CONFIGS.pop(config, None)
+        folded.update({k: p.fold(stats) for k, p in probes.items()})
+        info[config] = dict(lr=best, held_out_miou=held_miou, held_out_scenes=[store.scenes[i]["id"] for i in held],
+                            sweep_loss=sweep_curve, final_loss=curve)
+    return folded, info
 
 
-def evaluate_val(model, transform, folded, archives, scenes, gt_source, dev, workers, chunk=200_000) -> tuple[dict, list]:
+def evaluate_val(encoders: dict, folded, archives, scenes, gt_source, dev, workers, chunk=200_000) -> tuple[dict, list]:
     fs = FoldedSet(folded, device=dev)
     per_scene = {k: {1: [], 3: []} for k in fs.keys}
     rows, t0 = [], time.time()
@@ -128,11 +152,13 @@ def evaluate_val(model, transform, folded, archives, scenes, gt_source, dev, wor
         keep = np.ones(n, bool)
         keep[s["anonymised"]] = False
         keep_t = torch.from_numpy(keep).to(dev)
-        stages, tiles = encode_scene(model, transform, s, scene_seed(scene), store="cpu")
+        stages, tiles = {}, {}
+        for block, (model, transform) in encoders.items():
+            stages[block], tiles[block] = encode_scene(model, transform, s, scene_seed(scene), store="cpu")
         cms = {k: {kk: torch.zeros(NUM_CLASSES, NUM_CLASSES, dtype=torch.int64, device=dev) for kk in (1, 3)} for k in fs.keys}
         for start in range(0, n, chunk):
             idx = torch.arange(start, min(start + chunk, n))
-            logits = fs.logits({"student": stages.gather(idx, device=dev)})
+            logits = fs.logits({block: st.gather(idx, device=dev) for block, st in stages.items()})
             m, g = keep_t[start:start + len(idx)], gt[start:start + len(idx)]
             for k, lg in logits.items():
                 top = lg.topk(3, dim=1).indices
@@ -142,8 +168,9 @@ def evaluate_val(model, transform, folded, archives, scenes, gt_source, dev, wor
             for kk in (1, 3):
                 per_scene[k][kk].append(cms[k][kk].cpu().numpy().astype(np.int32))
         rows.append(dict(scene=scene, n_vertices=n, kept=int(keep.sum()), tiles=tiles, waited=waited))
-        print(f"  [{i}/{len(scenes)}] {scene}: {n:,} vertices, scene mIoU (seed 0, top-1) "
-              f"{100 * float(miou(per_scene[fs.keys[0]][1][-1])):.1f}; {(time.time() - t0) / 60:.1f} min", flush=True)
+        quick = {k: round(100 * float(miou(per_scene[k][1][-1])), 1) for k in fs.keys if k.endswith("#0")}
+        print(f"  [{i}/{len(scenes)}] {scene}: {n:,} vertices, scene mIoU (seed 0, top-1) {quick}; "
+              f"{(time.time() - t0) / 60:.1f} min", flush=True)
     return {k: {kk: np.stack(v) for kk, v in d.items()} for k, d in per_scene.items()}, rows
 
 
@@ -183,13 +210,17 @@ def row_stats(cms1: np.ndarray, cms3: np.ndarray) -> dict:
                 top1_seeds=s1, top3_seeds=s3, seeds=len(s1))
 
 
-def compare(pilot_dir: Path, student: dict, scenes: list[str], train_scenes: list[str]) -> dict:
+def compare(pilot_dir: Path, new: dict, scenes: list[str], train_scenes: list[str]) -> dict:
+    """new: {"<config>#<seed>": {1: (scenes, C, C), 3: ...}} of this run (T, and Sr if the control ran)."""
     z = np.load(pilot_dir / "confmats.npz")
     pres = json.loads((pilot_dir / "results.json").read_text())
     pscenes = [str(s) for s in z["scenes"]]
     sel = [pscenes.index(s) for s in scenes]
-    cms = {"S": {kk: stack_confmats(z, "S", kk, sel) for kk in (1, 3)}, "S+": {kk: stack_confmats(z, "S+", kk, sel) for kk in (1, 3)},
-           "T": {kk: np.stack([student[k][kk] for k in sorted(student, key=lambda k: int(k.split("#")[1]))]) for kk in (1, 3)}}
+    flat = {f"{k}|top{kk}": v for k, d in new.items() for kk, v in d.items()}
+    cms = {"S": {kk: stack_confmats(z, "S", kk, sel) for kk in (1, 3)}, "S+": {kk: stack_confmats(z, "S+", kk, sel) for kk in (1, 3)}}
+    for c in ("T", "Sr"):
+        if any(k.startswith(f"{c}#") for k in new):
+            cms[c] = {kk: stack_confmats(flat, c, kk) for kk in (1, 3)}
     rows = {c: dict(name=NAMES[c], inference_inputs=INPUTS[c], **row_stats(cms[c][1], cms[c][3])) for c in ("S", "S+", "T")}
     pgit = pres.get("git", {}).get("commit")
     fgit = pres.get("features", {}).get("git", {}).get("commit")
@@ -205,6 +236,15 @@ def compare(pilot_dir: Path, student: dict, scenes: list[str], train_scenes: lis
         diffs[f"{a} - {b}"] = dict(diff=rows[a]["top1"] - rows[b]["top1"], lo=100 * bd["lo"], hi=100 * bd["hi"], p_le_0=bd["p_le_0"])
     gain = rows["S+"]["top1"] - rows["S"]["top1"]
     recovered = (rows["T"]["top1"] - rows["S"]["top1"]) / gain if gain else None
+    control = None
+    if "Sr" in cms:  # the protocol check: frozen Sonata through this evaluation, against the pilot's row and the student
+        row = dict(name=NAMES["Sr"], inference_inputs=INPUTS["Sr"], provenance="new run (this experiment): protocol check",
+                   **row_stats(cms["Sr"][1], cms["Sr"][3]))
+        cdiffs = {}
+        for a, b, ra, rb in (("Sr", "S", row, rows["S"]), ("T", "Sr", rows["T"], row)):
+            bd = bootstrap_diff(cms[a][1], cms[b][1])
+            cdiffs[f"{a} - {b}"] = dict(diff=ra["top1"] - rb["top1"], lo=100 * bd["lo"], hi=100 * bd["hi"], p_le_0=bd["p_le_0"])
+        control = dict(row=row, diffs=cdiffs)
     feats = pres.get("features", {})
     # the pilot's step 4 saved its train scenes as ids (probes.pt "features" -> results.json)
     pilot_train = [t if isinstance(t, str) else t["id"] for t in feats.get("scenes", [])]
@@ -219,7 +259,7 @@ def compare(pilot_dir: Path, student: dict, scenes: list[str], train_scenes: lis
         recorded_vs_recomputed_top1={c: (rows[c]["pilot_recorded_top1"], round(rows[c]["top1"], 2)) for c in ("S", "S+")})
     checks["recorded_matches_recomputed"] = all(r is None or abs(r - v) <= 0.005 for r, v in checks["recorded_vs_recomputed_top1"].values()) \
         if len(scenes) == len(pscenes) else None
-    return dict(rows=rows, diffs=diffs, concatenation_gain=gain, recovered_fraction=recovered, protocol=checks,
+    return dict(rows=rows, diffs=diffs, concatenation_gain=gain, recovered_fraction=recovered, protocol=checks, control=control,
                 pilot_train_scenes=pilot_train, pilot_dir=str(pilot_dir))
 
 
@@ -254,6 +294,7 @@ def main() -> int:
         print("!! the pilot's step-5 outputs are not attached: add the pilot_04_eval notebook output (confmats.npz, results.json)")
         return 2
     model, transform, student_meta = load_student(args.student or args.out / "student" / "student.pth", dev)
+    encoders = {"student": (model, transform), "sonata": load_frozen_sonata(dev)}  # the second is the protocol check
     archives = {s: p[0] for s, p in find_scenes(args.input)["core"].items()}
     tscenes, vscenes = train_scenes(archives, run["probe_train_scenes"]), val_scenes(archives, run["val_scenes"])
     print(f"  pilot outputs {pilot_dir}; student {student_meta.get('trainable')} after {student_meta.get('steps')} steps; "
@@ -263,18 +304,19 @@ def main() -> int:
         section("2. Training features (point-only) at the pilot's labelled sample")
         if args.features.exists():
             shutil.rmtree(args.features)
-        feat_info = train_features(model, transform, archives, tscenes, pcfg["points_per_scene"], args.features, dev, args.workers)
+        feat_info = train_features(encoders, archives, tscenes, pcfg["points_per_scene"], args.features, dev, args.workers)
         print(f"  {json.dumps(feat_info)}")
 
         section("3. Linear probes with the pilot's recipe")
         folded, probe_info = fit_probes(args.features, pcfg, dev)
-        torch.save(dict(probes=folded, lr=probe_info["lr"], recipe=pcfg, git=record["git"]), out / "probes.pt")
-        print(f"  learning rate {probe_info['lr']} (held-out mIoU {json.dumps(probe_info['held_out_miou'])})")
+        torch.save(dict(probes=folded, lr={c: v["lr"] for c, v in probe_info.items()}, recipe=pcfg, git=record["git"]), out / "probes.pt")
+        for c, v in probe_info.items():
+            print(f"  {c}: learning rate {v['lr']} (held-out mIoU {json.dumps(v['held_out_miou'])})")
 
         section("4. All val vertices, official ground truth")
         meta_dir = archives[vscenes[0]].parent.parent / "meta" / "metadata"
         gt_source = OfficialGT({s: archives[s] for s in vscenes}, meta_dir, args.tmp / "gt")
-        student_cms, val_rows = evaluate_val(model, transform, folded, archives, vscenes, gt_source, dev, args.workers)
+        student_cms, val_rows = evaluate_val(encoders, folded, archives, vscenes, gt_source, dev, args.workers)
 
         section("5. Image-free self-check")
         free = image_free_check(model, transform, archives, vscenes[0], dev, args.tmp, before)
@@ -306,7 +348,9 @@ def main() -> int:
         recovered_fraction=comp["recovered_fraction"], protocol=comp["protocol"], teacher_diagnostic=teacher_diag,
         teacher_checks=t_checks, teacher_summary=teacher_sum,
         observations={k: v for k, v in (obs or {}).items() if k != "per_scene"}, student=train_log and {k: v for k, v in train_log.items()},
-        student_checks=s_checks, smoke=smoke, probes=dict(lr=probe_info["lr"], held_out_miou=probe_info["held_out_miou"], recipe=pcfg),
+        student_checks=s_checks, smoke=smoke, control=comp["control"],
+        probes=dict(lr=probe_info["T"]["lr"], held_out_miou=probe_info["T"]["held_out_miou"], recipe=pcfg,
+                    control_lr=(probe_info.get("Sr") or {}).get("lr")),
         image_free=free, val_scenes=len(vscenes), train_scenes=len(tscenes),
         reproducibility=dict(commit=record["git"].get("commit"), dirty=record["git"].get("dirty"), start_commit=cfg["start_commit"],
                              checkpoint=cfg["pilot"]["encoder"], dino=cfg["pilot"]["dino"], subset=cfg["pilot"]["subset"],
@@ -328,9 +372,14 @@ def main() -> int:
         print(f"  {k:7s} {d['diff']:+.4f} [{d['lo']:+.2f}, {d['hi']:+.2f}]  P(diff <= 0) {d['p_le_0']}")
     rec = comp["recovered_fraction"]
     print(f"share of the concatenation gain recovered: {'n/a' if rec is None else f'{rec:.3f}'}")
+    if comp["control"]:
+        r = comp["control"]["row"]
+        print(f"protocol check, {r['name']}: top-1 {r['top1']:.4f} ± {r['top1_std']:.4f}  top-3 {r['top3']:.4f}")
+        for k, d in comp["control"]["diffs"].items():
+            print(f"  {k:7s} {d['diff']:+.4f} [{d['lo']:+.2f}, {d['hi']:+.2f}]  P(diff <= 0) {d['p_le_0']}")
     print(f"protocol: {json.dumps(comp['protocol'])}")
     print(f"image-free: {json.dumps({k: free[k] for k in ('ok', 'max_abs_feature_diff', 'stripped_copy_has_images', 'image_modules_imported_by_this_step', 'archive_reads')})}")
-    print(f"probe lr {probe_info['lr']}; {len(vscenes)} val scenes; {minutes} min; peak GPU {metrics['peak_gpu_gb']} GB; status {metrics['status']}; "
+    print(f"probe lr {json.dumps({c: v['lr'] for c, v in probe_info.items()})}; {len(vscenes)} val scenes; {minutes} min; peak GPU {metrics['peak_gpu_gb']} GB; status {metrics['status']}; "
           f"metrics {args.out / 'reports' / 'metrics.json'}")
     return 0 if free["ok"] else 1
 

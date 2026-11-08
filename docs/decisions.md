@@ -54,6 +54,14 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
     their recorded means), T new;
   - paired scene bootstrap for T − S, T − S+, S+ − S.
 - **Not isolated:** the contribution of learned attention (no student of a uniform-average teacher). The report says so.
+- **Protocol check (user decision 2026-11-08, after the first smoke run):**
+  - step 4 also runs the original frozen Sonata through Experiment 2's own evaluation (configuration `Sr`, alone in
+    its probe phase, so its probes start from the pilot's Sonata probe weights and see the same batch order);
+  - in the full run `Sr` should reproduce the pilot's S row (30.83) within seed noise;
+  - in the smoke run it is the like-for-like reference: that run's student scored 8.37 against the pilot's 28.16 on
+    the same 2 val scenes, but with a 4-scene, 2-epoch smoke probe against the pilot's full probe, so that gap says
+    nothing about the student;
+  - reported separately (report section 3.2); the main table keeps its three rows.
 - **Verified on CPU** (`tests/test_exp2.py`): steps 1–5 end to end on synthetic rooms. **Still to verify on Kaggle:**
   everything on real data, plus peak T4 memory, storage and runtimes (the smoke run measures them).
 

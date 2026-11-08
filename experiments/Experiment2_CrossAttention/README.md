@@ -20,6 +20,10 @@ lifted DINOv2 features to frozen Sonata raises linear-probe mIoU on ScanNet++ v2
      scored with the official evaluator.
    - Compared with the pilot's frozen Sonata and Sonata + DINOv2 rows. Those are reused from the pilot's saved
      per-scene confusion matrices, not rerun.
+   - **Protocol check:** the original frozen Sonata also goes through this same evaluation (same points, probe recipe,
+     initial weights and val vertices). In the full run it should reproduce the pilot's frozen-Sonata row within seed
+     noise. In the smoke run it is the like-for-like reference for the student, because the smoke probe is much
+     smaller than the pilot's. It adds about 20–30 min to the full run.
 5. **The PDF report**, built from the saved metrics.
 
 Start commit (the pilot's last): `6dcd7bdd4f337f550fc31b33382d2f1a442fdc6d`. All settings are in `config.json`.

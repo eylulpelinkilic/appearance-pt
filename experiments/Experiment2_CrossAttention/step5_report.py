@@ -330,6 +330,13 @@ def build(m: dict, out_dir: Path) -> Path:
                          boxtext))
     else:
         summary.append(P("<b>Measured answer.</b> Not measured yet: the evaluation step has not produced its rows.", boxtext))
+    ctrl = m.get("control")
+    if ctrl and m.get("mode") == "smoke":
+        x = ctrl["diffs"]["T - Sr"]
+        summary.append(P(f"<b>Like for like (smoke).</b> The pilot rows use the pilot's full probes; the student's probe here is the "
+                         f"smoke run's small one. Against frozen Sonata rerun with the same small probe "
+                         f"({ctrl['row']['top1']:.2f}), the student differs by {s2(x['diff'])} points ({s2(x['lo'])} to {s2(x['hi'])}).",
+                         boxtext))
     summary.append(P("<b>Images at inference.</b> Only Sonata + DINOv2 concatenation needs images: 30 posed DSLR photos per "
                      "scene, run through DINOv2 and lifted onto the points. Frozen Sonata and the student use the point cloud "
                      "(xyz, colour, normal) alone; the student's teacher and head are discarded after training.", boxtext))
@@ -423,7 +430,27 @@ def build(m: dict, out_dir: Path) -> Path:
     else:
         add(P("Not measured yet: step 4 has not written its rows.", body))
 
-    add(P("3.2 Teacher diagnostic", h2))
+    ctrl = m.get("control")
+    if ctrl and rows:
+        add(P("3.2 Protocol check: frozen Sonata rerun", h2))
+        r, d_sr, d_ts = ctrl["row"], ctrl["diffs"]["Sr - S"], ctrl["diffs"]["T - Sr"]
+        add(P("The original frozen Sonata went through this experiment's own evaluation: its features at the same labelled "
+              "points, a probe with the same recipe and the same initial weights as the pilot's, and the same val vertices. "
+              + ("In the full run it should reproduce the pilot's frozen-Sonata row within seed noise, which shows the student "
+                 "is measured on the pilot's terms." if m.get("mode") == "full" else
+                 "In this smoke run its probe is the small smoke probe, so it is the like-for-like reference for the student; "
+                 "the pilot rows above use the pilot's full probes.")))
+        ptab = [["Row", "Val top-1 mIoU", "Difference", "95 % interval"],
+                ["Frozen Sonata, pilot (reused)", f"{rows['S']['top1']:.2f} ± {rows['S']['top1_std']:.2f}", "—", "—"],
+                ["Frozen Sonata, rerun here", f"{r['top1']:.2f} ± {r['top1_std']:.2f}", s2(d_sr["diff"]) + " vs pilot",
+                 f"[{s2(d_sr['lo'])}, {s2(d_sr['hi'])}]"],
+                ["Point-only student", f"{rows['T']['top1']:.2f} ± {rows['T']['top1_std']:.2f}", s2(d_ts["diff"]) + " vs rerun",
+                 f"[{s2(d_ts['lo'])}, {s2(d_ts['hi'])}]"]]
+        add(captioned(table(ptab, [6.0 * cm, 3.6 * cm, 3.8 * cm, 3.5 * cm], right=(1, 2, 3)),
+                      "<b>Table 2b.</b> The frozen-Sonata rerun against the pilot's recorded row, and the student against the "
+                      "rerun (paired bootstrap over val scenes). Same probe recipe within the rerun and the student."))
+
+    add(P("3.3 Teacher diagnostic", h2))
     if diag:
         d = diag["difference"]
         add(P(f"On {diag['dev_points']:,} points of {len(diag['dev_scenes'])} dev scene(s), held out from teacher training, each "
@@ -438,7 +465,7 @@ def build(m: dict, out_dir: Path) -> Path:
     else:
         add(P("Not measured yet.", body))
 
-    add(P("3.3 Student training", h2))
+    add(P("3.4 Student training", h2))
     if log.get("curve"):
         add(P(f"Continued training from Sonata for {log['steps']} steps ({esc(log['trainable'])} trainable, crops of "
               f"{log['crop_points']:,} vertices): loss {log['loss_first_50']:.4f} over the first 50 steps, "
@@ -513,6 +540,9 @@ def build(m: dict, out_dir: Path) -> Path:
                                     "(W_k gets no gradient while W_q is zero)"],
             ["Student: one update reaches the encoder", f"{schk.get('trainable_changed')} (encoder gradient norm "
                                                         f"{f2(schk.get('encoder_grad_norm'))}; frozen stages unchanged: {schk.get('frozen_unchanged', 'all trainable')})"],
+            ["Frozen Sonata rerun reproduces the pilot's row", "not run" if not (m.get("control") or {}).get("diffs") else
+             f"{s2(m['control']['diffs']['Sr - S']['diff'])} points vs the pilot ({s2(m['control']['diffs']['Sr - S']['lo'])} to "
+             f"{s2(m['control']['diffs']['Sr - S']['hi'])})" + (" (smoke probe: not expected to match)" if m.get("mode") == "smoke" else "")],
             ["Point-only evaluation without images, cameras, DINO, teacher", f"{free.get('ok')}: stripped copy identical "
              f"(max |diff| {free.get('max_abs_feature_diff')}), image modules imported {free.get('image_modules_imported_by_this_step')}"]]
     add(captioned(table(ctab, [8.6 * cm, 8.3 * cm]), "<b>Table 4.</b> The checks each step ran and recorded."))

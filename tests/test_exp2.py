@@ -187,6 +187,7 @@ def test_steps_1_to_5_on_synthetic_rooms(tmp_path, monkeypatch):
                                  probe_train_scenes=4, val_scenes=2,
                                  probe=dict(lrs=[0.05], holdout=1, sweep_epochs=1, epochs=2, seeds=2, batch=256, points_per_scene=2000))
     cfg["shared"]["teacher"].update(batch=64, dim=8)
+    cfg["student_choice"] = dict(recorded_from_smoke=None, trainable=None, crop_points=None, steps=None)  # as before a smoke run
     cfg["shared"]["student"].update(min_targets=4, warmup=1)
     config = tmp_path / "config.json"
     config.write_text(json.dumps(cfg))

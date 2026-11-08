@@ -9,9 +9,23 @@
     "occlusion": "v2",
     "points_per_scene": 10000,
     "subset": "configs/scannetpp_subset.json (200 train, 50 val scenes)",
-    "probe_recipe": {"lrs": [0.0003, 0.001, 0.003, 0.01], "holdout": 20, "sweep_epochs": 10, "epochs": 15, "seeds": 3,
-                     "batch": 4096},
-    "baseline_rows": {"S": "frozen Sonata", "S+": "frozen Sonata + lifted DINOv2 (concatenation)"},
+    "probe_recipe": {
+      "lrs": [
+        0.0003,
+        0.001,
+        0.003,
+        0.01
+      ],
+      "holdout": 20,
+      "sweep_epochs": 10,
+      "epochs": 15,
+      "seeds": 3,
+      "batch": 4096
+    },
+    "baseline_rows": {
+      "S": "frozen Sonata",
+      "S+": "frozen Sonata + lifted DINOv2 (concatenation)"
+    },
     "baseline_runs": "pilot_03_probes (commit b949425) for the probes, pilot_04_eval (commit 03228a2) for the evaluation"
   },
   "shared": {
@@ -19,30 +33,119 @@
     "occlusion": "v2",
     "min_cameras": 3,
     "candidate_factor": 4,
-    "teacher": {"dim": 128, "lr": 0.001, "weight_decay": 0.0, "batch": 4096, "seed": 0},
-    "student": {"lr": 0.0001, "head_lr": 0.001, "weight_decay": 0.01, "warmup": 100, "grad_clip": 1.0,
-                "crops_per_scene": 4, "min_targets": 32, "target_keys": "all", "checkpoint_minutes": 30, "seed": 0},
-    "probe": {"lrs": [0.0003, 0.001, 0.003, 0.01], "holdout": 20, "sweep_epochs": 10, "epochs": 15, "seeds": 3,
-              "batch": 4096, "points_per_scene": 10000}
+    "teacher": {
+      "dim": 128,
+      "lr": 0.001,
+      "weight_decay": 0.0,
+      "batch": 4096,
+      "seed": 0
+    },
+    "student": {
+      "lr": 0.0001,
+      "head_lr": 0.001,
+      "weight_decay": 0.01,
+      "warmup": 100,
+      "grad_clip": 1.0,
+      "crops_per_scene": 4,
+      "min_targets": 32,
+      "target_keys": "all",
+      "checkpoint_minutes": 30,
+      "seed": 0
+    },
+    "probe": {
+      "lrs": [
+        0.0003,
+        0.001,
+        0.003,
+        0.01
+      ],
+      "holdout": 20,
+      "sweep_epochs": 10,
+      "epochs": 15,
+      "seeds": 3,
+      "batch": 4096,
+      "points_per_scene": 10000
+    }
   },
   "modes": {
     "smoke": {
-      "train_scenes": 6, "dev_scenes": 2, "targets_per_scene": 512, "teacher_epochs": 3, "student_steps": 12,
-      "smoke_options": {"trainable": ["enc4", "enc3-4", "all"], "crop_points": [100000, 200000], "steps_each": 6},
+      "train_scenes": 6,
+      "dev_scenes": 2,
+      "targets_per_scene": 512,
+      "teacher_epochs": 3,
+      "student_steps": 12,
+      "smoke_options": {
+        "trainable": [
+          "enc4",
+          "enc3-4",
+          "all"
+        ],
+        "crop_points": [
+          100000,
+          200000
+        ],
+        "steps_each": 6
+      },
       "student_budget_hours": 2.0,
-      "probe_train_scenes": 4, "val_scenes": 2,
-      "probe": {"lrs": [0.001, 0.01], "holdout": 1, "sweep_epochs": 1, "epochs": 2, "seeds": 2}
+      "probe_train_scenes": 4,
+      "val_scenes": 2,
+      "probe": {
+        "lrs": [
+          0.001,
+          0.01
+        ],
+        "holdout": 1,
+        "sweep_epochs": 1,
+        "epochs": 2,
+        "seeds": 2
+      }
     },
     "full": {
-      "train_scenes": 200, "dev_scenes": 20, "targets_per_scene": 2048, "teacher_epochs": 30,
-      "probe_train_scenes": 200, "val_scenes": 50
+      "train_scenes": 200,
+      "dev_scenes": 20,
+      "targets_per_scene": 2048,
+      "teacher_epochs": 30,
+      "probe_train_scenes": 200,
+      "val_scenes": 50
     }
   },
   "student_choice": {
-    "recorded_from_smoke": null,
-    "trainable": null,
-    "crop_points": null,
-    "steps": null,
-    "note": "Filled in from the smoke run's step-3 SUMMARY (measured peak memory and seconds per step) before the full run; the full run refuses to train while recorded_from_smoke is null."
+    "recorded_from_smoke": "smoke run 2026-11-08 (step-3 SUMMARY 18:13 UTC, Kaggle T4): every option fitted; widest set and largest crop chosen by the rule in step3_student.py",
+    "trainable": "all",
+    "crop_points": 200000,
+    "steps": 24000,
+    "measured": {
+      "seconds_per_step": 0.299,
+      "peak_gpu_gb": 1.98,
+      "trainable_parameters": 108461376,
+      "table": {
+        "enc4/100k": [
+          0.151,
+          0.68
+        ],
+        "enc4/200k": [
+          0.207,
+          0.74
+        ],
+        "enc3-4/100k": [
+          0.201,
+          1.09
+        ],
+        "enc3-4/200k": [
+          0.245,
+          1.27
+        ],
+        "all/100k": [
+          0.218,
+          1.4
+        ],
+        "all/200k": [
+          0.299,
+          1.98
+        ]
+      },
+      "table_columns": "seconds per step (GPU work only, without crop selection and scene loading), peak GPU GB"
+    },
+    "note": "steps = student_budget_hours (2.0) x 3600 / 0.299 s, rounded down to hundreds; the wall time per step also includes crop selection and scene loading, so the student step takes somewhat longer than 2 h."
   }
 }

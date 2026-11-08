@@ -150,7 +150,7 @@ def test_trainable_layers_and_one_student_update(tmp_path):
     assert len(idx) == 400 and d[idx].max() <= np.sort(d)[399] + 1e-9
 
 
-def write_pilot(root, val, rng):
+def write_pilot(root, val, train, rng):
     """The pilot's saved step-5 outputs for these val scenes (fake but consistent): confmats.npz, results.json."""
     cms = {}
     for c in ("S", "S+"):
@@ -166,7 +166,8 @@ def write_pilot(root, val, rng):
             for c in ("S", "S+")}
     (root / "results.json").write_text(json.dumps(dict(
         git={"commit": "03228a2"}, miou=miou, features=dict(points_per_scene=2000, views=16, occlusion="v2",
-                                                            encoder_names={"sonata": "sonata"}, git={"commit": "b949425"}, scenes=[]))))
+                                                            encoder_names={"sonata": "sonata"}, git={"commit": "b949425"},
+                                                            scenes=list(train)))))  # ids, as the pilot's step 4 saves them
 
 
 def test_steps_1_to_5_on_synthetic_rooms(tmp_path, monkeypatch):
@@ -178,7 +179,7 @@ def test_steps_1_to_5_on_synthetic_rooms(tmp_path, monkeypatch):
     val = subset["val"][:2]
     scenes_test.write_scene(inp / "core_val", val[0], anonymised=range(0, 40_000, 7), n_views=16)
     scenes_test.write_scene(inp / "core_val", val[1], n_views=16)
-    write_pilot(tmp_path / "pilot" / "pilot_concat" / "step5", val, np.random.default_rng(0))
+    write_pilot(tmp_path / "pilot" / "pilot_concat" / "step5", val, subset["train"][:4], np.random.default_rng(0))
 
     cfg = json.loads((ROOT / "experiments" / "Experiment2_CrossAttention" / "config.json").read_text())
     cfg["modes"]["smoke"].update(train_scenes=4, dev_scenes=1, targets_per_scene=64, teacher_epochs=2, student_steps=4,
@@ -248,6 +249,7 @@ def test_steps_1_to_5_on_synthetic_rooms(tmp_path, monkeypatch):
     assert m["status"] == "preliminary" and set(m["rows"]) == {"S", "S+", "T"}
     assert m["rows"]["T"]["provenance"] == "new run (this experiment)" and m["rows"]["S"]["provenance"].startswith("pilot")
     assert m["protocol"]["recorded_matches_recomputed"] and m["protocol"]["val_scenes_same_order"]
+    assert m["protocol"]["train_scenes_match"] and m["protocol"]["all_pilot_train_scenes"]
     assert m["image_free"]["ok"] and m["image_free"]["max_abs_feature_diff"] == 0.0
     assert set(m["image_free"]["archive_reads"]) <= {"pointcept", "scans/mesh_aligned_0.05_mask.txt"}
     d = m["diffs"]["S+ - S"]

@@ -183,7 +183,7 @@ def row_stats(cms1: np.ndarray, cms3: np.ndarray) -> dict:
                 top1_seeds=s1, top3_seeds=s3, seeds=len(s1))
 
 
-def compare(pilot_dir: Path, student: dict, scenes: list[str]) -> dict:
+def compare(pilot_dir: Path, student: dict, scenes: list[str], train_scenes: list[str]) -> dict:
     z = np.load(pilot_dir / "confmats.npz")
     pres = json.loads((pilot_dir / "results.json").read_text())
     pscenes = [str(s) for s in z["scenes"]]
@@ -206,8 +206,12 @@ def compare(pilot_dir: Path, student: dict, scenes: list[str]) -> dict:
     gain = rows["S+"]["top1"] - rows["S"]["top1"]
     recovered = (rows["T"]["top1"] - rows["S"]["top1"]) / gain if gain else None
     feats = pres.get("features", {})
+    # the pilot's step 4 saved its train scenes as ids (probes.pt "features" -> results.json)
+    pilot_train = [t if isinstance(t, str) else t["id"] for t in feats.get("scenes", [])]
     checks = dict(
         val_scenes_same_order=pscenes[:len(scenes)] == scenes if len(scenes) < len(pscenes) else pscenes == scenes,
+        train_scenes_match=pilot_train[:len(train_scenes)] == train_scenes,
+        all_pilot_train_scenes=len(train_scenes) == len(pilot_train),
         all_pilot_val_scenes=len(scenes) == len(pscenes),
         pilot_points_per_scene=feats.get("points_per_scene"), pilot_views=feats.get("views"),
         pilot_occlusion=feats.get("occlusion"), pilot_sonata=feats.get("encoder_names", {}).get("sonata"),
@@ -216,7 +220,7 @@ def compare(pilot_dir: Path, student: dict, scenes: list[str]) -> dict:
     checks["recorded_matches_recomputed"] = all(r is None or abs(r - v) <= 0.005 for r, v in checks["recorded_vs_recomputed_top1"].values()) \
         if len(scenes) == len(pscenes) else None
     return dict(rows=rows, diffs=diffs, concatenation_gain=gain, recovered_fraction=recovered, protocol=checks,
-                pilot_train_scenes=[s["id"] for s in feats.get("scenes", [])], pilot_dir=str(pilot_dir))
+                pilot_train_scenes=pilot_train, pilot_dir=str(pilot_dir))
 
 
 def main() -> int:
@@ -277,7 +281,7 @@ def main() -> int:
         print(f"  {json.dumps(free)}")
 
     section("6. The three rows")
-    comp = compare(Path(pilot_dir), student_cms, vscenes)
+    comp = compare(Path(pilot_dir), student_cms, vscenes, tscenes)
     np.savez_compressed(out / "confmats.npz", scenes=np.array(vscenes),
                         **{f"{k}|top{kk}": v for k, d in student_cms.items() for kk, v in d.items()})
     minutes = round((time.time() - t_start) / 60, 2)
@@ -292,6 +296,7 @@ def main() -> int:
                                             load("teacher/checks.json"))
     choice = cfg["student_choice"]
     final = (args.mode == "full" and bool(choice.get("recorded_from_smoke")) and len(vscenes) == 50 and comp["protocol"]["all_pilot_val_scenes"]
+             and comp["protocol"]["train_scenes_match"] and comp["protocol"]["all_pilot_train_scenes"]
              and train_log is not None and train_log["steps"] == choice.get("steps") and free["ok"])
     gpu_hours = sum(x for x in ((obs or {}).get("minutes", 0) / 60, (teacher_sum or {}).get("minutes", 0) / 60,
                                 (train_log or {}).get("session_hours", 0), minutes / 60))

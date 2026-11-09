@@ -7,6 +7,34 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
 
 ## 2026-11-05 — Experiments renamed; Experiment 2: cross-attention teacher and point-only Sonata student
 
+### E2 results. Full run (Kaggle T4, finished 2026-11-08 22:05 UTC; student settings from the smoke run of 2026-11-08)
+- **Student settings:** recorded from the smoke run's step-3 measurements: every option fitted (peak ≤ 1.98 GB). All
+  layers trainable (108,461,376 parameters), crops of 200,000 vertices, 24,000 steps (2 h at 0.299 s per step).
+- **Step 4 (status final), official val top-1 mIoU, mean ± std over 3 probe seeds:**
+
+  | Row | Inference input | Top-1 | Top-3 | Provenance |
+  |---|---|---|---|---|
+  | S frozen Sonata | point cloud | 30.8316 ± 0.0523 | 54.9080 | pilot (reused) |
+  | S+ frozen Sonata + lifted DINOv2 | point cloud + 30 posed photos | 40.7314 ± 0.0188 | 69.0700 | pilot (reused) |
+  | T point-only student | point cloud | 32.7454 ± 0.0231 | 60.9147 | new run |
+
+- **Differences** (paired bootstrap over the 50 val scenes):
+  - T − S +1.91 [+0.83, +3.38];
+  - T − S+ −7.99 [−9.19, −5.31];
+  - S+ − S +9.90 [+7.78, +11.07];
+  - share of the concatenation gain recovered: 0.193.
+- **Protocol check:** frozen Sonata rerun through Experiment 2's evaluation gave 30.8312 ± 0.0501, against the pilot's
+  30.8316 (Sr − S −0.0003). The protocol matches the pilot's. Train and val scene lists match the pilot's, the
+  recorded pilot means match their recomputation, and the image-free check passed exactly (max |diff| 0).
+- **Probe learning rate:** 3e-4 for both the student and the rerun Sonata, the lowest in the grid as in the pilot.
+- **Run time:** steps 1–4 took about 3.6 h; step 4 alone 30.4 min, peak GPU 7.96 GB.
+- **Reading:** a real but partial recovery, about a fifth of the concatenation gain at top-1, with no image at
+  inference.
+- **Not covered by the intervals:** variation between student training runs, since only one student was trained;
+  differences between student seeds are unmeasured. The contribution of learned attention is also not isolated.
+- **Pending:** the teacher diagnostic, observation statistics and student loss curve (in `reports/metrics.json` and
+  the PDF); a look at the rendered final report.
+
 ### E1. Experiment folders (user request, 2026-11-05)
 - `experiments/pilot_concat/` → `experiments/Experiment1_Concatenation/` with `git mv`; tests, docs links and
   `scripts/make_notebooks.py` updated, notebooks regenerated. Notebook names, run IDs, metrics and provenance are

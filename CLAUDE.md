@@ -13,7 +13,7 @@ Room", 3DV 2026) is related work only.
   `experiments/pilot_concat/` on 2026-11-05; write-up `docs/pilot_concat.md`): Concerto-style linear probes on frozen
   features. Lifted DINO still adds +2.7 [+1.2, +4.0] mIoU on top of Concerto (vs +9.9 on Sonata), mostly on small,
   appearance-defined objects. Its Kaggle outputs stay under `/kaggle/working/pilot_concat/` (baseline rows are reused).
-- **Experiment 2, now (user request 2026-11-05)** (`experiments/Experiment2_CrossAttention/`): a cross-attention teacher
+- **Experiment 2, full run done 2026-11-08** (student +1.91 [+0.83, +3.38] mIoU over frozen Sonata, 19 % of the concatenation gain; decisions.md E2 results) (`experiments/Experiment2_CrossAttention/`): a cross-attention teacher
   (frozen Sonata query, two input views, a held-out third) and continued training of Sonata as a point-only student,
   probed on the pilot's terms against the pilot's frozen Sonata and Sonata + DINO rows. Outputs under
   `/kaggle/working/Experiment2_CrossAttention/`; report `reports/sonata_cross_attention_report.pdf`. Smoke run first;

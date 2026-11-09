@@ -9,6 +9,7 @@ on `mesh_aligned_0.05.ply` with anonymized vertices excluded (see `configs/proto
 
 | Run ID | Date | Model | Config | Git commit | Seed | Protocol | Env (torch / wheelhouse) | Iters | GPU h | Val mIoU top-1 | Val mIoU top-3 | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
+| exp2_full | 2026-11-08 | point-only Sonata student (cross-attention teacher) + linear probe | `experiments/Experiment2_CrossAttention` | in metrics.json | probes 0–2, student 0 | pilot (P7), protocol check passed | torch 2.11.0+cu128 / appearance-pt-wheels | 24,000 student steps; probes 15 epochs | ≈ 3.6 (steps 1–4) | 32.75 ± 0.02 | 60.91 | T − S +1.91 [+0.83, +3.38]; T − S+ −7.99; 19 % of the concatenation gain |
 | pilot_04 | 2026-10-26 | linear probes on frozen features (12 configs) | `experiments/Experiment1_Concatenation` | in results.json | 0–2 | pilot (P7) | torch 2.11.0+cu128 / appearance-pt-wheels | 15 epochs | ≈ 0.75 (eval) | see Aggregates | see Aggregates | probes from pilot_03 (steps 3–4) |
 
 ## Aggregates (mean ± std over seeds)

@@ -30,7 +30,7 @@ higher-resolution cross-modal prediction from the DSLR images and dense laser sc
 | M1 Environment | done: wheelhouse built; smoke test notebook `m1_02` not run yet |
 | M2 Data + evaluation | data done and checked (250 scenes: 50 val + 200 train, DSLR and iPhone pools); official val ground truth pending |
 | Experiment 1 (pilot) | done 2026-10-26: `docs/pilot_concat.md` |
-| Experiment 2 (cross-attention teacher, point-only student) | code, notebook and CPU tests ready 2026-11-05; smoke run next |
+| Experiment 2 (cross-attention teacher, point-only student) | full run done 2026-11-08: the student gains +1.91 [+0.83, +3.38] mIoU over frozen Sonata, 19 % of the concatenation gain (decisions.md E2 results) |
 | Pretraining phase | planned, not started |
 | Supervised PTv3 (old M3–M4) | postponed |
 | DITR reproduction (old M5–M6) | dropped |

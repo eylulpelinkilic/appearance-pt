@@ -32,8 +32,24 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
   inference.
 - **Not covered by the intervals:** variation between student training runs, since only one student was trained;
   differences between student seeds are unmeasured. The contribution of learned attention is also not isolated.
-- **Pending:** the teacher diagnostic, observation statistics and student loss curve (in `reports/metrics.json` and
-  the PDF); a look at the rendered final report.
+- **From `reports/metrics.json`:**
+  - **observations:** 81.9 % of the pilot's labelled training points are seen by ≥ 3 distinct cameras (95.0 % by
+    ≥ 1); 409,600 targets with 3.2 M observations; the mean of the observations equals `lift()` (max |diff| 0.0) and
+    pixels re-project within 3.7e-4 px; 24 min, store 7.6 GB;
+  - **teacher, on 40,960 dev triples from 20 dev scenes:** cosine to the held-out view 0.6792 against 0.6741 for the
+    uniform average (+0.0051 [+0.0039, +0.0066]); better on 55 % of triples; weights on average 0.11 away from 0.5;
+    the teacher was at this level after its first epoch;
+  - so the student's targets are close to a multi-view average of DINOv2 features, and the student result says little
+    about learned attention;
+  - **student:** loss 0.675 (first 50 steps) → 0.134 (last 50), 0.30 s per step, 2.61 h, peak GPU 4.3 GB;
+  - GPU time 3.53 h in total.
+- **Report:** rendered and checked (6 pages). Fixes to `step5_report.py` after the check:
+  - Figure 4's per-scene panel now shows sorted differences instead of 20 crowded scene names;
+  - the interpretation states the teacher's numbers, the single student run and the probe learning rate at the grid
+    edge;
+  - the summary's limitation names the single student run.
+
+  The PDF was regenerated locally from the run's `metrics.json`; same numbers, the Kaggle copy is kept beside it.
 
 ### E1. Experiment folders (user request, 2026-11-05)
 - `experiments/pilot_concat/` → `experiments/Experiment1_Concatenation/` with `git mv`; tests, docs links and

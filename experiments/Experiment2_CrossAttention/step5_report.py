@@ -45,6 +45,10 @@ def s2(x) -> str:
     return "n/a" if x is None else f"{x:+.2f}".replace("-", "−")
 
 
+def plural(n, word: str) -> str:
+    return word if n == 1 else word + "s"
+
+
 def f2(x) -> str:
     return "n/a" if x is None else f"{x:.2f}"
 
@@ -167,15 +171,15 @@ def fig_teacher(diag: dict, path: Path) -> None:
         a1.set_xlabel("teacher epoch", fontsize=6.8)
     a1.set_title("Dev triples: cosine to the held-out view")
     a1.grid(axis="y", color=GRID, lw=0.6)
-    per = diag.get("per_scene") or []
-    for j, p in enumerate(per):
-        a2.plot([p["uniform_cos"], p["teacher_cos"]], [j, j], color="#cfcdc6", lw=1.2)
-        a2.scatter([p["uniform_cos"]], [j], s=14, facecolor="white", edgecolor=INK2, lw=0.8, zorder=3)
-        a2.scatter([p["teacher_cos"]], [j], s=16, color=BLUE, zorder=3)
-    a2.set_yticks(range(len(per)), [p["scene"] for p in per])
-    a2.tick_params(axis="y", labelsize=5.6)
+    per = sorted(diag.get("per_scene") or [], key=lambda p: p["teacher_cos"] - p["uniform_cos"])
+    diffs = [p["teacher_cos"] - p["uniform_cos"] for p in per]
+    a2.axvline(0, color="#8c8a84", lw=0.9)
+    a2.scatter(diffs, range(len(per)), s=16, color=BLUE, zorder=3)
+    a2.set_yticks([])
     a2.set_ylim(len(per) - 0.4, -0.6)
-    a2.set_title("Per dev scene: uniform (open) → teacher (filled)")
+    a2.set_ylabel(f"{len(per)} dev scenes, sorted", fontsize=6.8)
+    a2.set_xlabel("teacher − uniform average (cosine)", fontsize=6.8)
+    a2.set_title("Per dev scene")
     a2.grid(axis="x", color=GRID, lw=0.6)
     from matplotlib.ticker import FormatStrFormatter, MaxNLocator
     for axis in (a1.yaxis, a2.xaxis):
@@ -323,7 +327,7 @@ def build(m: dict, out_dir: Path) -> Path:
         rec = m.get("recovered_fraction")
         resolved = "resolved" if (d_ts["lo"] > 0 or d_ts["hi"] < 0) else "not resolved from zero"
         summary.append(P(f"<b>Measured answer.</b> The point-only student reaches <b>{t['top1']:.2f}</b> top-1 mIoU on the "
-                         f"{m.get('val_scenes')} val scene(s): it {verb} <b>{abs(d_ts['diff']):.2f} points</b> relative to frozen "
+                         f"{m.get('val_scenes')} val {plural(m.get('val_scenes'), 'scene')}: it {verb} <b>{abs(d_ts['diff']):.2f} points</b> relative to frozen "
                          f"Sonata ({s_['top1']:.2f}; 95 % interval {s2(d_ts['lo'])} to {s2(d_ts['hi'])}, {resolved}) and finished "
                          f"<b>{abs(d_tc['diff']):.2f} points {where}</b> Sonata + DINOv2 concatenation ({c['top1']:.2f}). "
                          + (f"That is {100 * rec:.0f} % of the concatenation gain of {m['concatenation_gain']:.2f} points." if rec is not None else ""),
@@ -342,9 +346,10 @@ def build(m: dict, out_dir: Path) -> Path:
                      "(xyz, colour, normal) alone; the student's teacher and head are discarded after training.", boxtext))
     summary.append(P("<b>Main limitation.</b> " + (
         "Smoke-run numbers on a handful of scenes; they say nothing about the answer. " if m.get("mode") == "smoke" else "")
-        + "The comparison evaluates the complete teacher-student method; it cannot isolate the contribution of learned "
-        "attention, because no student of a uniform-average teacher was trained. With 50 val scenes, differences under about "
-        "1 mIoU cannot be resolved.", boxtext))
+        + "One student was trained, so the intervals cover val scenes and probe seeds but not how much another training run of "
+        "the student would differ. The comparison evaluates the complete teacher-student method; it cannot isolate the "
+        "contribution of learned attention, because no student of a uniform-average teacher was trained. With 50 val scenes, "
+        "differences under about 1 mIoU cannot be resolved.", boxtext))
     add(boxed(summary))
     add(Spacer(1, 6))
 
@@ -355,7 +360,7 @@ def build(m: dict, out_dir: Path) -> Path:
         add(P(f"The pilot (Experiment 1) probed frozen point encoders with one linear layer on ScanNet++ v2. Frozen Sonata reached "
               f"{rows['S']['top1']:.2f} top-1 mIoU; concatenating DINOv2 features lifted from 30 posed photos per scene raised it "
               f"to {rows['S+']['top1']:.2f}, a gain of {g['diff']:.2f} points (95 % interval {g['lo']:.2f} to {g['hi']:.2f}) on "
-              f"these {m.get('val_scenes')} val scene(s). That gain needs the photos at test time, and it disappears on points no "
+              f"these {m.get('val_scenes')} val {plural(m.get('val_scenes'), 'scene')}. That gain needs the photos at test time, and it disappears on points no "
               "camera sees."))
     add(P("This experiment asks how much of the gain survives when the images are used only during training. A cross-attention "
           "teacher learns, from the point's own frozen Sonata feature, how to weight the DINOv2 features of two views so that "
@@ -395,7 +400,7 @@ def build(m: dict, out_dir: Path) -> Path:
         f"<b>Evaluation (step 4).</b> Teacher and head discarded; the student frozen; the pilot's feature layer (all five "
         f"stages upcast, 1232) at the pilot's labelled sample ({rec.get('points_per_scene', 0):,} points per train scene, "
         f"{m.get('train_scenes')} train scenes); a fresh linear probe with the pilot's recipe (learning rate from "
-        f"{esc(rec.get('lrs'))} on {rec.get('holdout')} held-out train scene(s), {rec.get('sweep_epochs')} epochs; then seeds "
+        f"{esc(rec.get('lrs'))} on {rec.get('holdout')} held-out train {plural(rec.get('holdout'), 'scene')}, {rec.get('sweep_epochs')} epochs; then seeds "
         f"0–{rec.get('seeds', 1) - 1}, {rec.get('epochs')} epochs, batch {rec.get('batch')}; chosen rate "
         f"{(m.get('probes') or {}).get('lr')}); every vertex of the val scenes, including points seen by fewer than three "
         "cameras; the toolbox's ground truth and metric.",
@@ -413,7 +418,7 @@ def build(m: dict, out_dir: Path) -> Path:
             tbl.append([esc(r["name"]), esc(r["inference_inputs"]), f"{r['top1']:.2f} ± {r['top1_std']:.2f}",
                         f"{r['top3']:.2f} ± {r['top3_std']:.2f}", dd, prov])
         add(captioned(table(tbl, [3.4 * cm, 3.2 * cm, 2.0 * cm, 1.8 * cm, 3.2 * cm, 3.3 * cm], right=(2, 3, 4), bold=(3,)),
-                      f"<b>Table 1.</b> Official ScanNet++ val results ({m.get('val_scenes')} scene(s); %, mean ± standard deviation "
+                      f"<b>Table 1.</b> Official ScanNet++ val results ({m.get('val_scenes')} {plural(m.get('val_scenes'), 'scene')}; %, mean ± standard deviation "
                       f"over {rows['T']['seeds']} probe seeds; pilot rows {rows['S']['seeds']}). The two pilot rows are recomputed, unrounded, from the pilot's saved per-scene "
                       "confusion matrices; nothing of the pilot was rerun. Intervals: paired bootstrap over val scenes."))
         fig_results(m, figs / "results.png")
@@ -453,7 +458,7 @@ def build(m: dict, out_dir: Path) -> Path:
     add(P("3.3 Teacher diagnostic", h2))
     if diag:
         d = diag["difference"]
-        add(P(f"On {diag['dev_points']:,} points of {len(diag['dev_scenes'])} dev scene(s), held out from teacher training, each "
+        add(P(f"On {diag['dev_points']:,} points of {len(diag['dev_scenes'])} dev {plural(len(diag['dev_scenes']), 'scene')}, held out from teacher training, each "
               f"with a fixed triple of cameras, the teacher's prediction reaches a mean cosine of <b>{diag['teacher_cos']:.4f}</b> "
               f"to the held-out camera's DINOv2 feature; the uniform average of the same two input cameras reaches "
               f"<b>{diag['uniform_cos']:.4f}</b>. Difference {d['mean']:+.4f} (95 % interval {d['lo']:+.4f} to {d['hi']:+.4f}, "
@@ -513,11 +518,23 @@ def build(m: dict, out_dir: Path) -> Path:
         lines.append("The result belongs to the whole method (observations, teacher, targets, continued training); it cannot "
                      "say how much learned attention contributed, since no student of a uniform-average teacher was trained.")
         if diag:
-            better = diag["difference"]["lo"] > 0
-            lines.append("The teacher " + ("predicted held-out views better than the uniform average" if better else
-                         "did not predict held-out views measurably better than the uniform average")
-                         + "; the segmentation numbers show whether that " + ("carried" if better else "would have carried")
-                         + " over into point features.")
+            dd = diag["difference"]
+            better = dd["lo"] > 0
+            lines.append(f"The teacher's attention changed its targets little: on held-out view triples its cosine to the third view "
+                         f"was {diag['teacher_cos']:.4f} against {diag['uniform_cos']:.4f} for the plain average of the two input "
+                         f"views ({dd['mean']:+.4f}, interval {dd['lo']:+.4f} to {dd['hi']:+.4f}"
+                         + (", resolved but small" if better else ", not resolved") + f"), and its weights moved on average "
+                         f"{diag['mean_abs_weight_shift']:.2f} away from 0.5. The student's targets are therefore close to a "
+                         "multi-view average of DINOv2 features; whether the attention matters for the student cannot be told "
+                         "from this run.")
+        lines.append("Only one student was trained (seed 0). The intervals cover val scenes and probe seeds, not the "
+                     "variation between student training runs; a second student would show how stable the gain is.")
+        lr = (m.get("probes") or {}).get("lr")
+        grid = ((m.get("probes") or {}).get("recipe") or {}).get("lrs") or []
+        if grid and lr == min(grid):
+            lines.append(f"The probe's learning rate ({lr:g}) was the lowest in the grid, as in the pilot, for the student "
+                         + ("and for the rerun frozen Sonata alike; " if (m.get("probes") or {}).get("control_lr") == lr else "; ")
+                         + "a lower rate might raise absolute scores slightly, but the comparison uses the same recipe.")
         add(bullets(lines))
     else:
         add(P("Pending the evaluation.", body))
@@ -530,7 +547,8 @@ def build(m: dict, out_dir: Path) -> Path:
     ctab = [["Check", "Result"],
             ["Observations: mean equals the pilot's lifted feature", f"max |diff| {checks.get('mean_vs_lift_max_abs')}"],
             ["Observations: pixels re-project; cameras distinct; ids unique",
-             f"{checks.get('reprojection_max_px')} px; {checks.get('cameras_distinct')}; {checks.get('vertex_ids_unique')}"],
+             f"{'n/a' if checks.get('reprojection_max_px') is None else format(checks['reprojection_max_px'], '.1e')} px; "
+             f"{checks.get('cameras_distinct')}; {checks.get('vertex_ids_unique')}"],
             ["Training points seen by ≥ 3 distinct cameras", f"{obs.get('fraction_training_points_ge3', 'n/a')} "
              f"({obs.get('training_points_ge3', 0):,} of {obs.get('training_points', 0):,})"],
             ["Teacher: camera separation", str((tchk.get("dev_triples") or {}).get("held_out_not_an_input"))],

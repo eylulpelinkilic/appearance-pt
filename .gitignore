@@ -58,3 +58,6 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# downloaded Kaggle outputs of an experiment (reports, metrics): kept locally, not in git
+experiments/*/results/

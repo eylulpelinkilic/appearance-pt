@@ -11,6 +11,9 @@
     "B": "Generalization gap = mean train cosine − mean val cosine (bootstrap over scenes), for the student (B1) and for the head-only baseline on frozen Sonata (B2). A student gap much larger than B2's (the interval of the difference of gaps above 0) indicates that continued training fitted the 200 train scenes.",
     "C": "With one training seed per student and 50 val scenes, differences under about 1 mIoU are not resolvable. If |student_attn − student_mean| < 1 mIoU or its 95 % interval includes 0, report \"no evidence that learned attention matters\"; never claim equivalence. Otherwise report the direction and size."
   },
+  "check_rules": {
+    "A_reproduction": "Experiment 2's saved probes (T#0-2) applied to f(p) recomputed now on every val scene give A1'. The check passes if every val scene was encoded with the same number of tiles as in Experiment 2 and |A1' - A1| is no larger than A1's standard deviation over probe seeds, at top-1 and at top-3. Identical counts are not required: the smoke run of 2026-11-12 found counts up to 58 apart on one scene, most likely because the sparse-convolution kernels are chosen by timing in each session (two passes in one session are bit-identical). User decision, 2026-11-12."
+  },
   "shared": {
     "probe": {
       "lrs": [
@@ -26,7 +29,6 @@
       "batch": 4096,
       "points_per_scene": 10000
     },
-    "repro_scenes": 3,
     "b": {
       "train_scenes": 50,
       "val_scenes": 50,
@@ -57,7 +59,6 @@
     "smoke": {
       "probe_train_scenes": 4,
       "val_scenes": 2,
-      "repro_scenes": 1,
       "probe": {
         "lrs": [
           0.001,

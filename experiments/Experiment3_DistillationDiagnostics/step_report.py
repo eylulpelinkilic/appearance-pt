@@ -23,7 +23,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from step5_report import AQUA, BLUE, FONTS, GRID, INK, MUTED, ORANGE, esc, f2, plural, s2  # noqa: E402  (Experiment 2's style)
+from step5_report import AQUA, BLUE, FONTS, GRID, INK, MUTED, ORANGE, esc, f2, s2  # noqa: E402  (Experiment 2's style)
 from xattn import run_mode  # noqa: E402
 from xdiag import CONFIG, OUT, find_runs, load_config  # noqa: E402
 
@@ -61,6 +61,10 @@ def cap(text: str) -> str:
 def ci(d: dict, digits: int = 2) -> str:
     f = (lambda x: s2(x)) if digits == 2 else (lambda x: "n/a" if x is None else f"{x:+.{digits}f}".replace("-", "−"))
     return f"{f(d['diff'] if 'diff' in d else d['gap'])} [{f(d['lo'])}, {f(d['hi'])}]"
+
+
+def s4(x) -> str:
+    return f"{x:+.4f}".replace("-", "−")
 
 
 def gb(x) -> str:
@@ -249,6 +253,8 @@ def build(m: dict, cfg: dict, out_dir: Path) -> Path:
     ]))
     add(P("Decision rules, fixed in config.json before the full run:", body))
     add(bullets([f"<b>{k}.</b> {esc(v)}" for k, v in rules.items()]))
+    add(P("Check rules, fixed in config.json:", body))
+    add(bullets([f"<b>{esc(k.replace('_', ' '))}.</b> {esc(v)}" for k, v in cfg.get("check_rules", {}).items()]))
 
     add(P("2. Segmentation", h1))
     if rows:
@@ -340,12 +346,13 @@ def build(m: dict, cfg: dict, out_dir: Path) -> Path:
     if A:
         a = A["checks"]
         rp_, w = a["reproduction"], a["widths"]
-        nrep = len(rp_["scenes"])
-        diffmax = max(rp_["max_abs_count_diff"].values()) if rp_["max_abs_count_diff"] else None
         ch += [["A: h is Experiment 2's saved head, at the end of training",
                 f"SHA-256 {a['head']['head_sha256'][:16]}…, step {a['head']['step']:,} of {a['head']['steps']:,}"],
-               ["A: f(p) recomputed now, through Experiment 2's saved probes, gives its confusion matrices",
-                f"{'identical' if rp_['ok'] else 'NOT identical'} on {nrep} val {plural(nrep, 'scene')} (max count difference {diffmax})"],
+               ["A: f(p) recomputed now, through Experiment 2's saved probes on every val scene (A1′), reproduces A1",
+                f"{'passed' if rp_['ok'] else 'FAILED'}: top-1 {s4(rp_['diff_top1'])} (tolerance {rp_['tolerance_top1']:.4f}), "
+                f"top-3 {s4(rp_['diff_top3'])} (tolerance {rp_['tolerance_top3']:.4f}); {100 * rp_['moved_share_top1']:.3f} % of "
+                f"top-1 counts moved (max {rp_['max_abs_count_diff']} in a cell), {rp_['identical_scenes']} of {rp_['scenes']} "
+                f"scenes identical; tile counts {'as in Experiment 2' if rp_['tiles_match'] else 'DIFFER: ' + esc(json.dumps(rp_['tiles_mismatch']))}"],
                ["A: feature widths f, h, [f, h]", f"{w['f']}, {w['h']}, {w['f_plus_h']}: {'ok' if w['ok'] else 'MISMATCH'}"],
                ["A: image-free evaluation", "passed" if a["image_free"]["ok"] else "FAILED"]]
     if B:

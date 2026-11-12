@@ -8,8 +8,9 @@ pilot's recipe (each feature set's learning rate chosen by the recipe's own rule
   A3  [f(p), h(f(p))], 2256-d;
 next to the pilot's frozen Sonata and Sonata + DINOv2 rows (reused). h is the head Experiment 2 saved in
 student/checkpoint.pt (its SHA-256 is recorded). Checks: the head belongs to the saved student (same encoder weights
-in both files) and ended training; f(p) recomputed now and fed to Experiment 2's own saved probes reproduces Experiment
-2's per-scene confusion matrices on the first val scenes; feature widths; the image-free check of Experiment 2.
+in both files) and ended training; reproduction (config.json check_rules): f(p) recomputed now, fed to Experiment 2's
+own saved probes on every val scene, gives A1' within A1's probe-seed standard deviation, with every scene encoded in
+as many tiles as in Experiment 2; feature widths; the image-free check of Experiment 2.
 Decision rule (config.json): supported if A2 or A3 beats A1 in top-1 with a 95 % interval excluding 0.
 Outputs: <out>/runA/ (summary.json, confmats.npz, probes.pt).
 
@@ -38,7 +39,7 @@ from official import OfficialGT
 from step4_evaluate import image_free_check
 from xattn import mark_mode, peak_gpu_gb, train_scenes, val_scenes
 from xdiag import CONFIG, OUT, find_exp2, find_pilot, load_config, load_student_head, stack_config, write_json
-from xprobe import diff_of, evaluate_val, fit_configs, flat, pilot_and_exp2, table_rows, train_features
+from xprobe import diff_of, evaluate_val, fit_configs, flat, pilot_and_exp2, row_of, table_rows, train_features
 
 NAMES = {"S": "Frozen Sonata", "S+": "Frozen Sonata + lifted DINOv2 (concatenation)", "A1": "Student f(p)",
          "A2": "Student h(f(p))", "A3": "Student [f(p), h(f(p))]"}
@@ -47,6 +48,33 @@ INPUTS = {"S": "point cloud", "S+": "point cloud + 30 posed DSLR photos", "A1": 
 PROVENANCE = {"S": "pilot (reused)", "S+": "pilot (reused)", "A1": "Experiment 2 (reused confusion matrices)",
               "A2": "new (Run A)", "A3": "new (Run A)"}
 CONFIGS = {"A2": ("student_h",), "A3": ("student_f", "student_h")}
+
+
+def reproduction(ref_cms: dict, a1: dict, exp2: Path, vscenes: list, val_rows: list) -> dict:
+    """config.json check_rules.A_reproduction: A1' (Experiment 2's saved probes on today's f(p), every val scene) against
+    A1 (Experiment 2's saved confusion matrices): the mIoU drift against A1's probe-seed standard deviation, the share of
+    confusion counts that moved, and the tile count of every scene against Experiment 2's."""
+    keys = sorted(ref_cms, key=lambda k: int(k.split("#")[1]))
+    mine = {kk: np.stack([ref_cms[k][kk] for k in keys]) for kk in (1, 3)}  # (seeds, scenes, C, C), seeds as A1's
+    assert all(mine[kk].shape == a1[kk].shape for kk in (1, 3)), (mine[1].shape, a1[1].shape)
+    r_now, r_saved = row_of(mine[1], mine[3]), row_of(a1[1], a1[3])
+    out = dict(scenes=len(vscenes), seeds=len(keys), a1_recomputed=r_now, diff_top1=r_now["top1"] - r_saved["top1"],
+               diff_top3=r_now["top3"] - r_saved["top3"], tolerance_top1=r_saved["top1_std"], tolerance_top3=r_saved["top3_std"])
+    for kk in (1, 3):
+        d = np.abs(mine[kk].astype(np.int64) - a1[kk].astype(np.int64))
+        out[f"moved_share_top{kk}"] = float(d.sum() / 2 / a1[kk].astype(np.int64).sum())
+    d1 = np.abs(mine[1].astype(np.int64) - a1[1].astype(np.int64))
+    out["max_abs_count_diff"] = int(max(d1.max(), np.abs(mine[3].astype(np.int64) - a1[3].astype(np.int64)).max()))
+    out["identical_scenes"] = int((d1.reshape(d1.shape[0], d1.shape[1], -1).max(2).max(0) == 0).sum())
+    saved = {r["scene"]: (r.get("tiles") or {}).get("student")
+             for r in json.loads((exp2 / "evaluation" / "results.json").read_text()).get("per_scene", [])}
+    now = {r["scene"]: r["tiles"]["student"] for r in val_rows}
+    out["tiles_mismatch"] = {s: dict(now=now.get(s), experiment2=saved.get(s)) for s in vscenes if now.get(s) != saved.get(s)}
+    out["tiles_match"] = not out["tiles_mismatch"]
+    out["tiles_more_than_one"] = {s: n for s, n in now.items() if n != 1}
+    out["ok"] = bool(out["tiles_match"] and abs(out["diff_top1"]) <= out["tolerance_top1"]
+                     and abs(out["diff_top3"]) <= out["tolerance_top3"])
+    return out
 
 
 def main() -> int:
@@ -97,37 +125,28 @@ def main() -> int:
         for c, v in probe_info.items():
             print(f"  {c} ({v['width']}-d): learning rate {v['lr']} (held-out mIoU {json.dumps(v['held_out_miou'])})")
 
-        section("4. All val vertices; Experiment 2's own probes on the first scenes (reproduction check)")
+        section("4. All val vertices; Experiment 2's own probes on today's f(p) (reproduction check)")
         meta_dir = archives[vscenes[0]].parent.parent / "meta" / "metadata"
         gt_source = OfficialGT({s: archives[s] for s in vscenes}, meta_dir, args.tmp / "gt")
         saved2 = torch.load(exp2 / "evaluation" / "probes.pt", weights_only=False)
         reference = {k: v for k, v in saved2["probes"].items() if k.startswith("T#")}
         cms, ref_cms, val_rows = evaluate_val(enc, folded, archives, vscenes, gt_source, dev, args.workers,
-                                              reference=reference, reference_scenes=run["repro_scenes"])
+                                              reference=reference, reference_scenes=len(vscenes))
 
         section("5. Image-free check (Experiment 2's)")
         free = image_free_check(student, transform, archives, vscenes[0], dev, args.tmp, before)
         print(f"  {json.dumps({k: free[k] for k in ('ok', 'max_abs_feature_diff', 'image_modules_imported_by_this_step')})}")
 
     section("6. Rows and differences")
-    e2 = np.load(exp2 / "evaluation" / "confmats.npz")
-    escenes = [str(s) for s in e2["scenes"]]
-    n_ref = len(next(iter(ref_cms.values()))[1]) if ref_cms else 0
-    repro = {}
-    for k in sorted(ref_cms):
-        for kk in (1, 3):
-            mine = ref_cms[k][kk]
-            theirs = np.stack([e2[f"{k}|top{kk}"][escenes.index(s)] for s in vscenes[:n_ref]])
-            repro[f"{k}|top{kk}"] = int(np.abs(mine.astype(np.int64) - theirs).max())
+    allcms = pilot_and_exp2(pilot, exp2, vscenes)
+    repro = reproduction(ref_cms, allcms["A1"], exp2, vscenes, val_rows)
     widths = feat_info["widths"]
     checks = dict(
-        head=facts, head_matches_student=True, ended_training=facts["step"] == facts["steps"],
-        reproduction=dict(scenes=vscenes[:n_ref], max_abs_count_diff=repro, ok=bool(repro) and max(repro.values()) == 0),
+        head=facts, head_matches_student=True, ended_training=facts["step"] == facts["steps"], reproduction=repro,
         widths=dict(f=widths["student_f"], h=widths["student_h"], f_plus_h=widths["student_f"] + widths["student_h"],
                     ok=widths["student_f"] == facts["head_shapes"]["net.1.weight"][1]
                     and widths["student_h"] == facts["head_shapes"]["net.3.weight"][0]),
         image_free=free)
-    allcms = pilot_and_exp2(pilot, exp2, vscenes)
     for c in CONFIGS:
         allcms[c] = {kk: stack_config(flat(cms), c, kk) for kk in (1, 3)}
     rows, gain = table_rows(allcms, NAMES, INPUTS, PROVENANCE)
@@ -158,9 +177,14 @@ def main() -> int:
         print(f"  {k}: top-1 {d['top1']['diff']:+.4f} [{d['top1']['lo']:+.2f}, {d['top1']['hi']:+.2f}] P {d['top1']['p_le_0']}; "
               f"top-3 {d['top3']['diff']:+.4f} [{d['top3']['lo']:+.2f}, {d['top3']['hi']:+.2f}]")
     print(f"decision A: {summary['decision']['text']}")
-    print(f"checks: head sha256 {facts['head_sha256'][:16]}... (step {facts['step']}/{facts['steps']}); reproduction of "
-          f"Experiment 2 on {n_ref} val scene(s): max count diff {max(repro.values()) if repro else 'n/a'}; widths "
+    print(f"checks: head sha256 {facts['head_sha256'][:16]}... (step {facts['step']}/{facts['steps']}); widths "
           f"{json.dumps(checks['widths'])}; image-free {free['ok']}")
+    print(f"reproduction ({repro['scenes']} val scenes, Experiment 2's saved probes on today's f(p)): A1' top-1 "
+          f"{repro['a1_recomputed']['top1']:.4f} vs A1 {rows['A1']['top1']:.4f} (diff {repro['diff_top1']:+.4f}, tolerance "
+          f"{repro['tolerance_top1']:.4f}); top-3 {repro['a1_recomputed']['top3']:.4f} vs {rows['A1']['top3']:.4f} (diff "
+          f"{repro['diff_top3']:+.4f}, tolerance {repro['tolerance_top3']:.4f}); moved counts {repro['moved_share_top1']:.2e} "
+          f"(top-1) / {repro['moved_share_top3']:.2e} (top-3), max count diff {repro['max_abs_count_diff']}, identical "
+          f"scenes {repro['identical_scenes']}; tiles match {repro['tiles_match']} -> {'OK' if repro['ok'] else 'FAILED'}")
     print(f"{summary['minutes']} min, peak GPU {summary['peak_gpu_gb']} GB; result {'OK' if ok else 'CHECK FAILED'}")
     return 0 if ok else 1
 

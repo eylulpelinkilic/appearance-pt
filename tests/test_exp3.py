@@ -57,7 +57,7 @@ def test_runs_a_b_c_and_the_report_on_synthetic_rooms(tmp_path, monkeypatch):
 
     cfg = json.loads((HERE / "config.json").read_text())
     cfg["modes"]["smoke"] = dict(
-        probe_train_scenes=4, val_scenes=2, repro_scenes=1,
+        probe_train_scenes=4, val_scenes=2,
         probe=dict(lrs=[0.01, 0.05], holdout=1, sweep_epochs=1, epochs=2, seeds=2, batch=256, points_per_scene=2000),
         b=dict(train_scenes=2, val_scenes=2, points_per_scene=300, crops_per_scene=2, crop_points=3000, classes=5,
                head=dict(max_epochs=3, batch=64, warmup=1)),
@@ -84,7 +84,9 @@ def test_runs_a_b_c_and_the_report_on_synthetic_rooms(tmp_path, monkeypatch):
     assert run(stepA, ["--pilot", pilot, "--features", tmp_path / "featA", "--tmp", tmp_path / "tmpA", "--workers", 2]) == 0
     a = json.loads((out / "runA" / "summary.json").read_text())
     assert set(a["rows"]) == {"S", "S+", "A1", "A2", "A3"} and set(a["diffs"]) == {"A2 - A1", "A3 - A1"}
-    assert a["checks"]["reproduction"]["ok"] and a["checks"]["reproduction"]["scenes"] == a["val_scenes"][:1]
+    rp = a["checks"]["reproduction"]
+    assert rp["ok"] and rp["scenes"] == 2 and rp["seeds"] == 2 and rp["tiles_match"] and rp["identical_scenes"] == 2
+    assert rp["diff_top1"] == 0 and rp["moved_share_top1"] == 0 and rp["max_abs_count_diff"] == 0
     w = a["checks"]["widths"]
     assert w["ok"] and w["f"] == exp2_test.WIDTH and w["f_plus_h"] == w["f"] + w["h"]
     assert a["probes"]["A3"]["width"] == w["f_plus_h"] and a["probes"]["A2"]["lr"] in (0.01, 0.05)
@@ -170,3 +172,33 @@ def test_runs_a_b_c_and_the_report_on_synthetic_rooms(tmp_path, monkeypatch):
         assert pdf.exists() and pdf.stat().st_size > 30_000
         if os.environ.get("EXP3_KEEP_REPORT"):  # for a look at the rendered report
             shutil.copytree(out / "reports", os.environ["EXP3_KEEP_REPORT"], dirs_exist_ok=True)
+
+
+def test_reproduction_check_tolerates_small_drift_only(tmp_path, monkeypatch):
+    """config.json check_rules.A_reproduction: a drift of a few counts passes, a real change or other tiling fails."""
+    exp2_test.e2e.stub_packages(monkeypatch)
+    for name in ("xdiag", "xprobe"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    monkeypatch.syspath_prepend(str(HERE))
+    stepA = load_script("experiments/Experiment3_DistillationDiagnostics/stepA_head_probes.py")
+    rng = np.random.default_rng(0)
+    a1 = {kk: rng.integers(0, 50, (3, 4, 100, 100)).astype(np.int32) for kk in (1, 3)}
+    for kk in (1, 3):
+        a1[kk][:, :, np.arange(20), np.arange(20)] += 5000 + rng.integers(0, 400, (3, 4, 20))  # seed spread
+    scenes = [f"s{i}" for i in range(4)]
+    (tmp_path / "evaluation").mkdir()
+    (tmp_path / "evaluation" / "results.json").write_text(json.dumps(dict(per_scene=[dict(scene=s, tiles=dict(student=1)) for s in scenes])))
+    rows = [dict(scene=s, tiles=dict(student=1)) for s in scenes]
+    ref = {f"T#{i}": {kk: a1[kk][i].copy() for kk in (1, 3)} for i in range(3)}
+    for i in range(3):  # a few counts move from a diagonal cell to an off-diagonal one
+        ref[f"T#{i}"][1][0, 3, 3] -= 58
+        ref[f"T#{i}"][1][0, 3, 4] += 58
+    ok = stepA.reproduction(ref, a1, tmp_path, scenes, rows)
+    assert ok["ok"] and ok["max_abs_count_diff"] == 58 and ok["identical_scenes"] == 3 and 0 < ok["moved_share_top1"] < 1e-3
+    big = {k: {kk: v.copy() for kk, v in d.items()} for k, d in ref.items()}
+    for i in range(3):
+        big[f"T#{i}"][1][:, np.arange(20), np.arange(20)] //= 2
+    assert not stepA.reproduction(big, a1, tmp_path, scenes, rows)["ok"]
+    rows[1] = dict(scene="s1", tiles=dict(student=2))
+    tiled = stepA.reproduction(ref, a1, tmp_path, scenes, rows)
+    assert not tiled["ok"] and tiled["tiles_mismatch"] == {"s1": {"now": 2, "experiment2": 1}}

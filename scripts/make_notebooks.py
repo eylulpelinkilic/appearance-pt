@@ -146,8 +146,9 @@ SETTINGS = {
               "`pilot_concat/step5/confmats.npz` and `results.json` give the two Sonata baseline rows",
     "exp2resume": "**Input (only to resume an interrupted run):** the output of the earlier `exp2_cross_attention` session "
                   "(saved observations, teacher and student checkpoint are picked up from it)",
-    "exp2full": "**Input:** the output of the full Experiment 2 run (the `pilot_02_concerto_lift` notebook's latest version, "
-                "where `exp2_cross_attention` was imported): its student, teacher, observations and evaluation are reused",
+    "exp2full": "**Input:** the output of the notebook that ran Experiment 2's full run (8 Nov, about 3.6 h; its Output "
+                "tab shows `Experiment2_CrossAttention/` with `student/`, `teacher/`, `observations/`, `evaluation/`, "
+                "`reports/`): its student, teacher, observations and evaluation are reused",
     "exp3resume": "**Input (only to resume an interrupted run):** this notebook's own earlier output of the same mode",
     "exp3ab": "**Input:** the output of the Experiment 3 A+B notebook (`exp3_ab_diagnostics`, same RUN mode): Run A's "
               "confusion matrices give the A2/A3 comparisons, and the report then covers all three runs",

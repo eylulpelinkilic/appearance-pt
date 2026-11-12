@@ -31,7 +31,7 @@ CONFIG = HERE / "config.json"
 OUT = Path("/kaggle/working/Experiment3_DistillationDiagnostics")
 EXP2_CONFIG = REPO_ROOT / "experiments" / "Experiment2_CrossAttention" / "config.json"
 EXP2_FILES = ("student/student.pth", "student/checkpoint.pt", "teacher/teacher.pt", "observations/summary.json",
-              "evaluation/confmats.npz", "evaluation/probes.pt", "reports/metrics.json")
+              "evaluation/confmats.npz", "evaluation/probes.pt", "evaluation/results.json", "reports/metrics.json")
 IMAGE_MODULES = ("lifting", "pipeline", "transformers")
 
 

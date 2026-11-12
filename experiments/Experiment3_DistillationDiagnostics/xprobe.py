@@ -81,7 +81,8 @@ def evaluate_val(encoders: dict, folded: dict, archives, scenes, gt_source, dev,
                  reference_scenes: int = 0, chunk: int = 200_000, log=print) -> tuple[dict, dict, list]:
     """Per-scene top-1/top-3 confusion matrices of every folded probe on every val vertex (anonymised excluded), with
     blocks "<name>_f" and "<name>_h" computed per chunk. `reference`: Experiment 2's folded probes on block "student",
-    applied to `<first encoder>_f` on the first `reference_scenes` scenes (the reproduction check)."""
+    applied to `<first encoder>_f` on the first `reference_scenes` scenes (the reproduction check). Rows record each
+    encoder's tile count per scene (1 = one pass; more when a single pass ran out of GPU memory)."""
     fs = FoldedSet(folded, device=dev)
     ref = FoldedSet(reference, device=dev) if reference else None
     first = next(iter(encoders))
@@ -97,8 +98,9 @@ def evaluate_val(encoders: dict, folded: dict, archives, scenes, gt_source, dev,
         keep = np.ones(n, bool)
         keep[s["anonymised"]] = False
         keep_t = torch.from_numpy(keep).to(dev)
-        stages = {name: encode_scene(model, transform, s, scene_seed(scene), store="cpu")[0]
-                  for name, (model, transform, _) in encoders.items()}
+        stages, tiles = {}, {}
+        for name, (model, transform, _) in encoders.items():
+            stages[name], tiles[name] = encode_scene(model, transform, s, scene_seed(scene), store="cpu")
         use_ref = ref is not None and i <= reference_scenes
         sets = [(fs, per_scene)] + ([(ref, ref_cms)] if use_ref else [])
         cms = [{k: {kk: torch.zeros(NUM_CLASSES, NUM_CLASSES, dtype=torch.int64, device=dev) for kk in (1, 3)} for k in f.keys}
@@ -122,7 +124,7 @@ def evaluate_val(encoders: dict, folded: dict, archives, scenes, gt_source, dev,
             for k in cm:
                 for kk in (1, 3):
                     store[k][kk].append(cm[k][kk].cpu().numpy().astype(np.int32))
-        rows.append(dict(scene=scene, n_vertices=n, kept=int(keep.sum()), waited=waited))
+        rows.append(dict(scene=scene, n_vertices=n, kept=int(keep.sum()), tiles=tiles, waited=waited))
         log(f"  [{i}/{len(scenes)}] {scene}: {n:,} vertices; {(time.time() - t0) / 60:.1f} min")
     stack = lambda d: {k: {kk: np.stack(v) for kk, v in x.items()} for k, x in d.items() if x[1]}  # noqa: E731
     return stack(per_scene), stack(ref_cms), rows

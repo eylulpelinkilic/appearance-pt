@@ -16,8 +16,9 @@ changes):
   2's saved confusion matrices).
   - h is the head in Experiment 2's final `student/checkpoint.pt`. It was saved only there, and its encoder weights
     equal `student.pth` (checked; the head's SHA-256 is recorded).
-  - Reproduction check: f(p) is recomputed on 3 val scenes and passed through Experiment 2's saved T probes, which
-    must give identical per-scene confusion matrices.
+  - Reproduction check: f(p) is recomputed and passed through Experiment 2's saved T probes. As first agreed, this
+    was on 3 val scenes and required identical per-scene confusion matrices; that rule was changed on 2026-11-12
+    (see "E3 smoke runs" below).
   - The probe features are recomputed: Experiment 2 kept them on `/tmp`, so they are gone.
 - **Run B, cosine on train and val scenes.** The only place val images are used.
   - Scenes: 50 train scenes (a fixed seed-0 draw from the 200) and all 50 val scenes. Per scene, 10,000
@@ -49,6 +50,39 @@ changes):
   user's go-ahead.
 - **CPU test.** `tests/test_exp3.py` runs A, B, C and the report end to end on top of Experiment 2's own synthetic
   end-to-end run.
+
+### E3 smoke runs (Kaggle T4, notebook 1, 2026-11-12 11:36–11:46 UTC)
+- **Run A: one check failed. Recomputed f(p) did not reproduce Experiment 2's counts exactly.** On the first val scene,
+  Experiment 2's saved probes on today's f(p) gave confusion counts up to 58 apart from Experiment 2's in one cell.
+  Everything else passed:
+  - the head is from the final checkpoint (step 24,000 of 24,000);
+  - the widths are 1232, 1024 and 2256;
+  - the image-free check passed;
+  - peak GPU was 3.88 GB, so no out-of-memory tiling.
+
+  **Likely cause (not verified):** spconv picks its sparse-convolution kernels by timing them in each session, so
+  features can differ in the last bits between sessions. Within one session, two passes are bit-identical
+  (Experiment 2's image-free check: max |diff| 0.0).
+
+  **New rule (user decision, 2026-11-12;** `config.json` → `check_rules.A_reproduction`**):**
+  - Run A applies Experiment 2's saved probes to today's f(p) on *every* val scene, giving A1′. This costs almost
+    nothing, because those features are computed for A2 and A3 anyway.
+  - The check passes if every scene has the same tile count as in Experiment 2 (from Experiment 2's
+    `evaluation/results.json`) and |A1′ − A1| is no larger than A1's probe-seed standard deviation, at top-1 and at
+    top-3. In Experiment 2's full run that standard deviation was 0.023 at top-1.
+  - A1 stays the reused row. The moved share of counts and the number of identical scenes are reported.
+
+  The smoke A2 and A3 numbers (about 11 mIoU) come from the smoke probe recipe and are not comparable with A1.
+- **Run B: all checks passed.**
+  - Observation checks: mean vs `lift()` 0.0; re-projection 0.0 px; counts equal; ids unique; cameras distinct.
+    No probe module was imported.
+  - Consistency with training: on train-scene crops, at points with ≥ 3 cameras, the student's cosine is 0.861,
+    i.e. a loss of 0.139, against Experiment 2's final training loss of 0.134.
+  - B3 = cos(t_attn, t_mean) on val is 0.985 (5th percentile 0.93), and exactly 1 at 1-camera points.
+  - Run time 7.5 min for 2 + 2 scenes.
+  - The val observations take 0.054 GB for 4,000 points, so about 6.8 GB for the full 500,000.
+  - The smoke decision is not meaningful: 2 scenes per split, and the B2 head stopped after 2 epochs without
+    plateauing.
 
 ## 2026-11-05 — Experiments renamed; Experiment 2: cross-attention teacher and point-only Sonata student
 

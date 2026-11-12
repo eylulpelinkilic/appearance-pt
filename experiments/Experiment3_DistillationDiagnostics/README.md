@@ -55,8 +55,13 @@ Start commit: `85cf5c870c9b95f2e01cca9a7c118d1a0e2c95a9`. Experiment 2's full ru
 - **A:**
   - h is the head in Experiment 2's final `checkpoint.pt` (its SHA-256 is recorded). Its encoder weights equal
     `student.pth`, and it is at step 24,000 of 24,000.
-  - f(p), recomputed now and passed through Experiment 2's own saved probes, gives Experiment 2's per-scene
-    confusion matrices on the first 3 val scenes exactly.
+  - Reproduction (`config.json` → `check_rules`). f(p) is recomputed now on every val scene and passed through
+    Experiment 2's own saved probes; this gives A1′. The check passes if:
+    - every scene is encoded in as many tiles as in Experiment 2;
+    - |A1′ − A1| is no larger than A1's standard deviation over probe seeds, at top-1 and at top-3.
+
+    The share of confusion counts that moved is reported too. Identical counts are not required: the GPU's
+    sparse-convolution kernels are chosen per session (see decisions.md E3).
   - Feature widths (1232, 1024, 2256).
   - Experiment 2's image-free check.
 - **B:**
@@ -79,8 +84,9 @@ notebook into an existing pinned notebook** (open it → File → Import Noteboo
 - notebook 1 (`exp3_ab_diagnostics.ipynb`) → `pilot_01_encoders`
 - notebook 2 (`exp3_c_uniform_teacher.ipynb`) → `pilot_03_probes`
 
-Do not import into `pilot_02_concerto_lift` or `pilot_04_eval`. Their latest outputs are inputs here (Experiment 2's
-full run and the pilot rows).
+Do not import into `pilot_04_eval`, or into the notebook that ran Experiment 2's full run (`pilot_02_concerto_lift`,
+possibly renamed `exp2_cross_attention`). Their latest outputs are inputs here (the pilot rows and Experiment 2's full
+run).
 
 **Settings (both):** GPU T4 x2, Internet on, secret `GITHUB_TOKEN`, "Pin to original environment" kept.
 
@@ -91,7 +97,7 @@ full run and the pilot rows).
 | `appearance-pt-wheels` | 1, 2 | the offline environment |
 | `scannetpp-core-train-a`, `-train-b`, `scannetpp-core-val` | 1, 2 | point clouds, labels; DSLR views (Run B's observations, Run C's lift check) |
 | `pilot_04_eval` output | 1, 2 | the pilot's frozen Sonata and Sonata + DINOv2 rows |
-| `pilot_02_concerto_lift` output (Experiment 2's full run) | 1, 2 | student, head, teacher, observations, evaluation |
+| the output of the notebook that ran Experiment 2's full run (8 Nov, about 3.6 h; its Output tab shows `Experiment2_CrossAttention/` with `student/`, `teacher/`, `observations/`, `evaluation/`, `reports/`) | 1, 2 | student, head, teacher, observations, evaluation |
 | notebook 1's output (same `RUN` mode) | 2 | Run A's confusion matrices (A2/A3 comparisons); the report then covers A, B and C |
 | the notebook's own earlier output | (resume only) | Run C's training resumes from its last checkpoint |
 

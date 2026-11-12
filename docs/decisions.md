@@ -73,6 +73,14 @@ changes):
   - A1 stays the reused row. The moved share of counts and the number of identical scenes are reported.
 
   The smoke A2 and A3 numbers (about 11 mIoU) come from the smoke probe recipe and are not comparable with A1.
+- **Smoke rerun with the new rule (2026-11-12 12:08–12:16 UTC): passed.**
+  - A1′ − A1 = +0.0010 at top-1 (tolerance 0.1417) and +0.0022 at top-3 (tolerance 0.1643).
+  - 0.011 % of top-1 counts moved (0.007 % at top-3), at most 45 in a cell.
+  - Neither val scene was identical to Experiment 2's.
+  - Tile counts match.
+
+  A tiny drift that touches every scene fits the per-session kernel choice, not a different encoder. Run B repeated
+  its numbers to within about 1e-6.
 - **Run B: all checks passed.**
   - Observation checks: mean vs `lift()` 0.0; re-projection 0.0 px; counts equal; ids unique; cameras distinct.
     No probe module was imported.

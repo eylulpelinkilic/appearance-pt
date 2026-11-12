@@ -18,6 +18,13 @@ Room", 3DV 2026) is related work only.
   probed on the pilot's terms against the pilot's frozen Sonata and Sonata + DINO rows. Outputs under
   `/kaggle/working/Experiment2_CrossAttention/`; report `reports/sonata_cross_attention_report.pdf`. Smoke run first;
   the student's trainable layers and step budget are recorded in its `config.json` before the full run (> 2 h: ask).
+- **Experiment 3, code done 2026-11-12** (`experiments/Experiment3_DistillationDiagnostics/`, decisions.md E3):
+  diagnostics of the Experiment 2 student. Run A probes the head output h(f(p)) and [f, h(f)]. Run B measures the
+  cosine to the targets on train vs val scenes; it is the only use of val images and must never reach a probe. Run C
+  trains a uniform-average-teacher student. Decision rules are in its `config.json`. Two notebooks, imported into the
+  pinned `pilot_01_encoders` (A+B) and `pilot_03_probes` (C). Outputs are under
+  `/kaggle/working/Experiment3_DistillationDiagnostics/`; the report is
+  `reports/distillation_diagnostics_report.pdf`. Smoke runs first. Run C's full run takes about 3.3 h: ask first.
 - **Next phase (planned, do NOT start without the user):** continued pretraining from Sonata weights
   on ScanNet++ under a fixed GPU budget, comparing Concerto's cross-modal objective (control) with
   new objectives (likely higher-resolution cross-modal prediction using ScanNet++'s DSLR images and
@@ -72,6 +79,8 @@ Room", 3DV 2026) is related work only.
   Report per-class gains of K+ over K and the visible / never-seen split.
 - **Experiment 2** (`experiments/Experiment2_CrossAttention/README.md`): stop after the smoke run (report its measurements
   and record the student choice) and before the full run.
+- **Experiment 3** (`experiments/Experiment3_DistillationDiagnostics/README.md`): stop after each smoke run and
+  before Run C's full run (> 2 h).
 - **Pretraining phase**: planned after the pilot (see Project); not specified yet.
 - **Postponed** (supervised; only if the user brings them back): M3 reduced training protocol and
   M4 PTv3 baseline. **Dropped:** the DITR reproduction (old M5–M6, baseline B).

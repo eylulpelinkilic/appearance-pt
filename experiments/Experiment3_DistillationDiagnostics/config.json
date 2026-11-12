@@ -1,0 +1,90 @@
+{
+  "experiment": "Experiment3_DistillationDiagnostics",
+  "title": "Where did the distilled image information go? Diagnostics for the Experiment 2 student",
+  "start_commit": "85cf5c870c9b95f2e01cca9a7c118d1a0e2c95a9",
+  "experiment2": {
+    "commit": "0546137ed0721d01b39b38b5fa2cbcd4e33b5d89",
+    "note": "the full run whose output is attached; its student, head, teacher, observations and evaluation are reused"
+  },
+  "decision_rules": {
+    "A": "Present but not linearly readable from f(p) is supported if A2 (h(f(p))) or A3 ([f(p), h(f(p))]) beats A1 (f(p)) in top-1 mIoU with a 95 % paired-bootstrap interval that excludes 0; otherwise it is not supported.",
+    "B": "Generalization gap = mean train cosine − mean val cosine (bootstrap over scenes), for the student (B1) and for the head-only baseline on frozen Sonata (B2). A student gap much larger than B2's (the interval of the difference of gaps above 0) indicates that continued training fitted the 200 train scenes.",
+    "C": "With one training seed per student and 50 val scenes, differences under about 1 mIoU are not resolvable. If |student_attn − student_mean| < 1 mIoU or its 95 % interval includes 0, report \"no evidence that learned attention matters\"; never claim equivalence. Otherwise report the direction and size."
+  },
+  "shared": {
+    "probe": {
+      "lrs": [
+        0.0003,
+        0.001,
+        0.003,
+        0.01
+      ],
+      "holdout": 20,
+      "sweep_epochs": 10,
+      "epochs": 15,
+      "seeds": 3,
+      "batch": 4096,
+      "points_per_scene": 10000
+    },
+    "repro_scenes": 3,
+    "b": {
+      "train_scenes": 50,
+      "val_scenes": 50,
+      "points_per_scene": 10000,
+      "candidate_factor": 1.6,
+      "classes": 15,
+      "crops_per_scene": 4,
+      "crop_points": 200000,
+      "views": 30,
+      "occlusion": "v2",
+      "head": {
+        "lr": 0.001,
+        "weight_decay": 0.01,
+        "batch": 4096,
+        "warmup": 100,
+        "plateau_rel": 0.005,
+        "plateau_epochs": 2,
+        "max_epochs": 100,
+        "seed": 0
+      }
+    },
+    "c": {
+      "lift_check_scenes": 2,
+      "head_features": true
+    }
+  },
+  "modes": {
+    "smoke": {
+      "probe_train_scenes": 4,
+      "val_scenes": 2,
+      "repro_scenes": 1,
+      "probe": {
+        "lrs": [
+          0.001,
+          0.01
+        ],
+        "holdout": 1,
+        "sweep_epochs": 1,
+        "epochs": 2,
+        "seeds": 2
+      },
+      "b": {
+        "train_scenes": 2,
+        "val_scenes": 2,
+        "points_per_scene": 2000,
+        "crops_per_scene": 1,
+        "head": {
+          "max_epochs": 2
+        }
+      },
+      "c": {
+        "steps": 12,
+        "lift_check_scenes": 1
+      }
+    },
+    "full": {
+      "probe_train_scenes": 200,
+      "val_scenes": 50
+    }
+  }
+}

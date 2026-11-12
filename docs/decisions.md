@@ -5,6 +5,51 @@ Newest first. Each entry: what was decided, why, and what was verified (and how)
 
 ---
 
+## 2026-11-12 — Experiment 3: diagnostics for the Experiment 2 student
+
+### E3. Design (user specification, 2026-11-12; defaults agreed by the user; code `experiments/Experiment3_DistillationDiagnostics/`)
+Why: the Experiment 2 student recovered 19 % of the concatenation gain at top-1 (about 42 % at top-3), although its
+training loss fell from 0.675 to 0.134. Learned attention was barely better than a uniform average (dev cosine 0.6792
+vs 0.6741). Three diagnostics, which import Experiment 2's modules and reuse its saved outputs (nothing in Experiment 2
+changes):
+- **Run A, head probes.** Probes on A2 h(f(p)) (1024-d) and A3 [f(p), h(f(p))] (2256-d) against A1 f(p) (Experiment
+  2's saved confusion matrices).
+  - h is the head in Experiment 2's final `student/checkpoint.pt`. It was saved only there, and its encoder weights
+    equal `student.pth` (checked; the head's SHA-256 is recorded).
+  - Reproduction check: f(p) is recomputed on 3 val scenes and passed through Experiment 2's saved T probes, which
+    must give identical per-scene confusion matrices.
+  - The probe features are recomputed: Experiment 2 kept them on `/tmp`, so they are gone.
+- **Run B, cosine on train and val scenes.** The only place val images are used.
+  - Scenes: 50 train scenes (a fixed seed-0 draw from the 200) and all 50 val scenes. Per scene, 10,000
+    non-anonymised points seen by ≥ 1 camera. Observations go through step 1's code path, with step 1's checks.
+  - Measures:
+    - B1 = cos(h(f_student), t_attn);
+    - B2 = a head of h's architecture trained on frozen Sonata (Experiment 2's 409,600 targets) until the epoch
+      loss improves by < 0.5 % twice;
+    - B3 = cos(t_attn, t_mean).
+  - Features come from whole scenes; training-style crops of 200,000 vertices are added on train scenes only.
+  - Breakdowns: by camera count (1, 2, ≥ 3), and by the 15 most frequent val classes next to the per-class IoU change
+    student − frozen Sonata.
+  - The script imports no probe code (checked at its end), and the probe code refuses features under `runB/`.
+- **Run C, uniform-average teacher.** Identical to Experiment 2's step 3 except the target t_mean, then evaluated
+  as in step 4, with head features too (C2, C3).
+  - Pre-training checks: the configuration diff is exactly `["target"]`; t_mean equals the pilot's `lift()`
+    recomputed from the images (relative difference < 5e-3, cosine > 0.999; the stored observations are fp16); one
+    update changes an encoder parameter.
+  - The comparison with the attention student uses the paired bootstrap. A second seed of both students is
+    proposed, with a time estimate, but not run.
+- **Decision rules**, in `config.json` before any full run:
+  - A: supported if A2 or A3 beats A1 at top-1 with an interval above 0.
+  - B: the student's train − val gap is compared with B2's; if the interval of the difference is above 0, the
+    student fitted the train scenes.
+  - C: if |difference| < 1 mIoU or the interval includes 0, the report says "no evidence that learned attention
+    matters", never "equivalent".
+- **Kaggle.** Two notebooks, imported into the pinned `pilot_01_encoders` (Runs A and B) and `pilot_03_probes`
+  (Run C), because new notebooks get the cu130 image. Estimates: A + B about 1.5 h; C about 3.3 h, which needs the
+  user's go-ahead.
+- **CPU test.** `tests/test_exp3.py` runs A, B, C and the report end to end on top of Experiment 2's own synthetic
+  end-to-end run.
+
 ## 2026-11-05 — Experiments renamed; Experiment 2: cross-attention teacher and point-only Sonata student
 
 ### E2 results. Full run (Kaggle T4, finished 2026-11-08 22:05 UTC; student settings from the smoke run of 2026-11-08)

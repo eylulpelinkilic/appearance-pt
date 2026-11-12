@@ -100,6 +100,29 @@ for p in sorted(pathlib.Path("/kaggle/working/Experiment2_CrossAttention/reports
     print(f"{p}  {p.stat().st_size / 1e6:.2f} MB")
 '''
 
+EXP3_PATH = '''\
+# Experiment 3 imports the encoder packages (pinned submodules), our src/, and Experiments 1 and 2's modules (unchanged)
+EXP3_PYTHONPATH = {"PYTHONPATH": ":".join(f"{CODE_DIR}/{p}" for p in ("src", "third_party/utonia", "third_party/sonata",
+                                                                     "third_party/concerto", "experiments/Experiment1_Concatenation",
+                                                                     "experiments/Experiment2_CrossAttention"))}
+'''
+
+EXP3_RUN = '''\
+# "smoke" first (a few scenes through every step, with all checks); then "full"
+RUN = "smoke"
+'''
+
+EXP3_PIP = '''\
+# the report builder needs reportlab (not in the Kaggle image or the wheelhouse); matplotlib is in the image
+run_logged([sys.executable, "-m", "pip", "install", "--quiet", "reportlab==4.2.5"], "/kaggle/working/logs/exp3_pip.log", cwd=CODE_DIR)
+'''
+
+EXP3_OUTPUTS = '''\
+# what this run produced (download /kaggle/working/Experiment3_DistillationDiagnostics from the Output tab)
+for p in sorted(pathlib.Path("/kaggle/working/Experiment3_DistillationDiagnostics/reports").glob("*")):
+    print(f"{p}  {p.stat().st_size / 1e6:.2f} MB")
+'''
+
 SHOW_IMAGES = '''\
 # the images (ScanNet++-derived: they stay in this private notebook)
 from IPython.display import Image as ShowImage, display
@@ -123,6 +146,11 @@ SETTINGS = {
               "`pilot_concat/step5/confmats.npz` and `results.json` give the two Sonata baseline rows",
     "exp2resume": "**Input (only to resume an interrupted run):** the output of the earlier `exp2_cross_attention` session "
                   "(saved observations, teacher and student checkpoint are picked up from it)",
+    "exp2full": "**Input:** the output of the full Experiment 2 run (the `pilot_02_concerto_lift` notebook's latest version, "
+                "where `exp2_cross_attention` was imported): its student, teacher, observations and evaluation are reused",
+    "exp3resume": "**Input (only to resume an interrupted run):** this notebook's own earlier output of the same mode",
+    "exp3ab": "**Input:** the output of the Experiment 3 A+B notebook (`exp3_ab_diagnostics`, same RUN mode): Run A's "
+              "confusion matrices give the A2/A3 comparisons, and the report then covers all three runs",
     "coretrain": "**Inputs (optional, for the vertex-order check):** private datasets `scannetpp-core-train-a` and "
                  "`scannetpp-core-train-b`",
     "internet": "**Internet:** on",
@@ -512,6 +540,70 @@ def build() -> dict[str, dict]:
             run_step("experiments/Experiment2_CrossAttention/step5_report.py", ', "--mode", RUN', "exp2_step5.log",
                      env="EXP2_PYTHONPATH"),
             code(EXP2_OUTPUTS),
+        ]),
+        "experiments/Experiment3_DistillationDiagnostics/notebooks/exp3_ab_diagnostics.ipynb": notebook([
+            header(
+                "Experiment 3 · Runs A and B: where did the distilled image information go?",
+                "Two diagnostics of Experiment 2's point-only student, reusing its saved student, head, teacher and "
+                "evaluation. **Run A** probes the head output h(f(p)) and [f(p), h(f(p))] with the pilot's recipe, next to "
+                "Experiment 2's f(p) row (its saved confusion matrices, reproduced on the first val scenes as a check). "
+                "**Run B** measures the cosine of the student's h(f(p)) to the teacher's targets on train and val scenes, "
+                "against a head trained on frozen Sonata (the only use of val images; no probe code is imported). Then the "
+                "report (preliminary until Run C is in). Outputs: /kaggle/working/Experiment3_DistillationDiagnostics/. "
+                "Import this notebook into the pinned `pilot_01_encoders` notebook (File → Import Notebook), so that it "
+                "runs on the wheelhouse's image. Set RUN below: \"smoke\" first, then \"full\". No `SCANNETPP_TOKEN` needed.",
+                ["gpu", "internet", "github", "pin", "wheels", "coreall", "pilot5", "exp2full", "exp3resume"],
+                "Save Version → Save & Run All (Commit). Smoke: about 20–30 min. Full: about 1.5 h (Run A about 45 min, "
+                "Run B about 40 min).",
+                "the SUMMARY blocks of Runs A and B (logs: /kaggle/working/logs/exp3_*.log); the report is "
+                "/kaggle/working/Experiment3_DistillationDiagnostics/reports/distillation_diagnostics_report.pdf.",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            code(EXP3_PATH),
+            code(EXP3_RUN),
+            code(EXP2_FIND_PILOT),
+            run_step("scripts/setup/install_env.py", "", "exp3_install.log"),
+            code(EXP3_PIP),
+            run_step("experiments/Experiment3_DistillationDiagnostics/stepA_head_probes.py", ', "--mode", RUN, "--pilot", PILOT',
+                     "exp3_runA.log", env="EXP3_PYTHONPATH", keep_going=True),
+            run_step("experiments/Experiment3_DistillationDiagnostics/stepB_val_cosine.py", ', "--mode", RUN, "--pilot", PILOT',
+                     "exp3_runB.log", env="EXP3_PYTHONPATH", keep_going=True),
+            run_step("experiments/Experiment3_DistillationDiagnostics/step_report.py", ', "--mode", RUN', "exp3_report_ab.log",
+                     env="EXP3_PYTHONPATH"),
+            code(EXP3_OUTPUTS),
+        ]),
+        "experiments/Experiment3_DistillationDiagnostics/notebooks/exp3_c_uniform_teacher.ipynb": notebook([
+            header(
+                "Experiment 3 · Run C: a student of the uniform-average teacher",
+                "Does learned attention matter? **C1** trains a second student identical to Experiment 2's step 3 except "
+                "the target: the uniform average of each point's DINOv2 observations (checked against the pilot's lifted "
+                "feature before training; the only configuration difference is checked too). **C2** evaluates it exactly "
+                "like Experiment 2's step 4 (f(p) and the head features) and compares it with the attention student by "
+                "paired bootstrap. Then the report over all three runs. Outputs: "
+                "/kaggle/working/Experiment3_DistillationDiagnostics/. Import this notebook into the pinned "
+                "`pilot_03_probes` notebook (File → Import Notebook). Set RUN below: \"smoke\" first, then \"full\". "
+                "Training checkpoints every 30 min and resumes from an attached earlier output of the same mode.",
+                ["gpu", "internet", "github", "pin", "wheels", "coreall", "pilot5", "exp2full", "exp3ab", "exp3resume"],
+                "Save Version → Save & Run All (Commit). Smoke: about 20–30 min. Full: about 3.3 h (training 2.6 h as in "
+                "Experiment 2, evaluation about 40 min); needs the user's go-ahead (> 2 h).",
+                "the SUMMARY blocks of C1 and C2 (logs: /kaggle/working/logs/exp3_*.log); the report is "
+                "/kaggle/working/Experiment3_DistillationDiagnostics/reports/distillation_diagnostics_report.pdf.",
+            ),
+            code(CONFIG),
+            code(CLONE),
+            code(EXP3_PATH),
+            code(EXP3_RUN),
+            code(EXP2_FIND_PILOT),
+            run_step("scripts/setup/install_env.py", "", "exp3_install.log"),
+            code(EXP3_PIP),
+            run_step("experiments/Experiment3_DistillationDiagnostics/stepC1_uniform_student.py", ', "--mode", RUN',
+                     "exp3_runC1.log", env="EXP3_PYTHONPATH"),
+            run_step("experiments/Experiment3_DistillationDiagnostics/stepC2_evaluate.py", ', "--mode", RUN, "--pilot", PILOT',
+                     "exp3_runC2.log", env="EXP3_PYTHONPATH", keep_going=True),
+            run_step("experiments/Experiment3_DistillationDiagnostics/step_report.py", ', "--mode", RUN', "exp3_report.log",
+                     env="EXP3_PYTHONPATH"),
+            code(EXP3_OUTPUTS),
         ]),
     }
 
